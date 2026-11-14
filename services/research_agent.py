@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime
 from urllib.parse import urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -22,6 +23,13 @@ TRUSTED_SUFFIXES = (
     "icar.org.in",
 )
 MAX_RESULTS = 6
+
+
+def _error_label(error: Exception) -> str:
+    """Return provider error metadata without logging response bodies or credentials."""
+    if isinstance(error, HTTPError):
+        return f"HTTP {error.code}"
+    return type(error).__name__
 
 
 def tavily_search(query: str) -> list[dict] | None:
@@ -164,12 +172,12 @@ def answer_user_query(query: str, field_context: dict) -> tuple[str, list[dict],
     try:
         sources = tavily_search(search_query)
     except Exception as exc:
-        print(f"Tavily search unavailable; trying fallback: {type(exc).__name__}", flush=True)
+        print(f"Tavily search unavailable; trying fallback: {_error_label(exc)}", flush=True)
     if sources is None:
         try:
             sources = search_sources(search_query)
         except Exception as exc:
-            print(f"Web search unavailable: {type(exc).__name__}", flush=True)
+            print(f"Web search unavailable: {_error_label(exc)}", flush=True)
             sources = []
     if sources:
         if os.getenv("GOOGLE_API_KEY"):
@@ -178,7 +186,7 @@ def answer_user_query(query: str, field_context: dict) -> tuple[str, list[dict],
                 if answer:
                     return answer, sources, "tavily_gemini" if os.getenv("TAVILY_API_KEY") else "web_search_gemini"
             except Exception as exc:
-                print(f"Gemini synthesis unavailable; using search excerpts: {type(exc).__name__}", flush=True)
+                print(f"Gemini synthesis unavailable; using search excerpts: {_error_label(exc)}", flush=True)
         answer = _format_search_excerpts(sources)
         mode = "tavily_search_excerpts" if os.getenv("TAVILY_API_KEY") else "search_result_excerpts"
         return answer, sources, mode
@@ -189,7 +197,7 @@ def answer_user_query(query: str, field_context: dict) -> tuple[str, list[dict],
             if result:
                 return result[0], result[1], "web_search_answer"
         except Exception as exc:
-            print(f"Agent synthesis unavailable; using search excerpts: {type(exc).__name__}", flush=True)
+            print(f"Agent synthesis unavailable; using search excerpts: {_error_label(exc)}", flush=True)
 
     if not sources:
         return (
@@ -345,14 +353,14 @@ def research_pending_events(conn: psycopg.Connection) -> None:
                 try:
                     note = gemini_synthesize(query, details, sources)
                 except Exception as exc:
-                    print(f"Gemini event synthesis unavailable: {type(exc).__name__}", flush=True)
+                    print(f"Gemini event synthesis unavailable: {_error_label(exc)}", flush=True)
             if note is None and sources and os.getenv("OPENAI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
                 try:
                     ai_result = openai_web_research(query, details)
                     if ai_result:
                         note, sources = ai_result
                 except Exception as exc:
-                    print(f"Legacy event synthesis unavailable: {type(exc).__name__}", flush=True)
+                    print(f"Legacy event synthesis unavailable: {_error_label(exc)}", flush=True)
             if note is None:
                 note = summarize_event(event_type, details, sources)
             status = "completed" if sources else "no_results"
