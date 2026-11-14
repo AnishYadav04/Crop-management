@@ -18,13 +18,22 @@ services:
       timeout: 5s
       retries: 12
 
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+    command: ["python", "-u", "-m", "services.migrate"]
+
   live-monitor:
     build: .
     container_name: crop-management-live-monitor
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
       POLL_INTERVAL_SECONDS: "900"
@@ -38,8 +47,8 @@ services:
     container_name: crop-management-mqtt-ingestor
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
       MQTT_BROKER: ${MQTT_BROKER:-broker.hivemq.com}
@@ -59,8 +68,8 @@ services:
     container_name: crop-management-dashboard
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
       DASHBOARD_PORT: "8000"
@@ -76,8 +85,8 @@ services:
     container_name: crop-management-research-worker
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

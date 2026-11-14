@@ -8,4 +8,6 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY services ./services
 COPY dashboard ./dashboard
+COPY database/init ./database/init
+COPY ml ./ml
 CMD ["python", "-u", "-m", "services.live_monitor"]

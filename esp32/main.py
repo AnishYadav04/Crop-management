@@ -19,6 +19,7 @@ MQTT_TOPIC = b"crop/field1/sensors/demo73921"
 PUBLISH_INTERVAL = 10
 
 DEVICE_ID = "wokwi-crop-sim-01"
+DEVICE_SESSION_ID = "%08x" % machine.rng()
 DHT_PIN = 15
 
 mqtt_client = None
@@ -185,6 +186,8 @@ def main():
     while True:
         payload = {
             "device_id": DEVICE_ID,
+            "device_session_id": DEVICE_SESSION_ID,
+            "sample_interval_seconds": PUBLISH_INTERVAL,
             "timestamp_utc": get_timestamp(),
             "sample_number": sample,
             "simulation": True,

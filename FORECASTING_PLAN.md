@@ -2,16 +2,17 @@
 
 ## Implementation status
 
-Implemented on 2026-11-08:
+Implementation status, updated 2026-11-14:
 
-- Data audit and repeatable report: **done**. The current archive has 8,760 rows, no missing hours, and no duplicate timestamps.
+- Data audit and repeatable report: **implemented**. The training path rejects non-hourly grids, duplicates, and missing targets before fitting; the local database still needs an environment-specific rerun to confirm its current contents.
 - Initial targets and horizons: **done**. Seven environmental variables are forecast at +1h, +6h, and +24h.
 - Baselines and learned model: **done**. The pipeline compares persistence, 24-hour seasonal-naive, 168-hour seasonal-naive, and histogram gradient boosting.
-- Chronological evaluation and refit artifacts: **core implemented**. Three expanding-window folds each evaluate 720 hours per target/horizon; 21 model/horizon artifacts and out-of-fold metrics are saved locally under `artifacts/forecasting/`. Seasonal breakdown plots and a final frozen holdout are still future work.
-- Live dashboard and forecast API: **implemented with a live-data gate**. It uses only Open-Meteo current-feed history once at least 168 consecutive hourly readings are present; it does not bridge gaps with ERA5.
+- Chronological evaluation and refit artifacts: **implemented in code**. Three expanding-window folds each evaluate up to 720 hours per target/horizon, followed by a separate 30-day chronological holdout. The suite writes fold and holdout metrics, prediction rows, and refitted artifacts locally under `artifacts/forecasting/`; artifacts are ignored by Git.
+- Live dashboard and forecast API: **implemented with strict gates**. It uses only Open-Meteo current-feed history after 169 consecutive completed hours meet source-coverage checks, rejects missing hours and stale feeds, and shares feature code with training. ERA5 is not mixed into serving inputs.
+- Forecast persistence and prospective evaluation: **implemented in the API path**. Forecasts store origin/valid times, method, model version, source and historical holdout MAE. Later completed-hour current-feed data is joined back as actual outcomes when available.
 - Crop-attention labels: **not available**. The data has no observed crop-stress labels, so no attention classifier was trained. Experimental weather rules remain advisory.
 
-The learned model had the lowest out-of-fold MAE for air temperature, humidity, soil temperature, and solar radiation at +1h; for air temperature, humidity, and soil temperature at +6h. Persistence or the daily seasonal baseline won the other target/horizon comparisons. Use [`artifacts/forecasting/metrics.csv`](artifacts/forecasting/metrics.csv) for the full scores. These scores measure fit to reanalysis data, not measured field performance.
+Previously reported local scores had the learned model winning selected target/horizon comparisons. Those historical metrics have not been recomputed against this restructuring, and the ignored artifact directory may be absent on another checkout. Any scores measure fit to reanalysis data, not measured field performance.
 
 ## Current starting point
 
@@ -74,10 +75,10 @@ Scikit-learn's `TimeSeriesSplit` is designed for time-ordered data and notes tha
 ## Phase 6 — Save and serve forecasts
 
 1. **Done:** artifacts include target, horizon, training interval, features, evaluation metrics, and ERA5 source metadata.
-2. **Done:** forecasts are served through the backend API, selected from the model or baseline winner from historical validation, and shown in the dashboard with the selected method and validation MAE.
-3. **Done:** forecasts stay unavailable until the current weather feed has a contiguous seven-day hourly window; the feed is kept separate from Wokwi and ERA5.
-4. **Future:** persist forecast runs and add calibrated uncertainty ranges.
-5. **Future:** compare each forecast with later observations, report live errors, and retrain only after a recorded evaluation.
+2. **Done:** forecasts are served through the backend API, selected from the model or baseline winner from historical cross-validation, and shown with the method and held-out historical MAE.
+3. **Done:** forecasts stay unavailable until the current weather feed has 169 consecutive completed hourly rows with coverage; source streams are kept separate.
+4. **Done:** forecast rows are persisted with issue/origin/valid time and model/data provenance. Calibrated uncertainty ranges remain future work.
+5. **Implemented, awaiting runtime data:** later observations can be attached to stored forecast rows. Prospective errors require the Docker services to run and collect matching current-feed observations.
 
 **Deliverable:** a versioned forecasting service suitable for dashboard use.
 

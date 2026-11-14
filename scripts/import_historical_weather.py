@@ -11,11 +11,10 @@ from urllib.request import Request, urlopen
 
 import psycopg
 
+from services.data_quality import build_measurement_metadata
+
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-LATITUDE = 28.24331
-LONGITUDE = 76.80864
-LOCATION_NAME = "Kapriwas, Rewari, Haryana, India"
 API_URL = "https://archive-api.open-meteo.com/v1/archive"
 HOURLY = ",".join(
     (
@@ -30,15 +29,15 @@ HOURLY = ",".join(
 )
 
 
-def fetch_period(start: date, end: date) -> dict:
+def fetch_period(start: date, end: date, profile: dict) -> dict:
     params = urlencode(
         {
-            "latitude": LATITUDE,
-            "longitude": LONGITUDE,
+            "latitude": profile["latitude"],
+            "longitude": profile["longitude"],
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
             "hourly": HOURLY,
-            "timezone": "Asia/Kolkata",
+            "timezone": profile["timezone"],
             "models": "era5",
         }
     )
@@ -60,7 +59,7 @@ def estimated_leaf_wetness(humidity: float | None, rain: float | None, temp: flo
     return round(state, 1)
 
 
-def import_rows(conn: psycopg.Connection, payload: dict) -> int:
+def import_rows(conn: psycopg.Connection, payload: dict, profile: dict) -> int:
     hourly = payload["hourly"]
     times = hourly["time"]
     fields = (
@@ -83,15 +82,28 @@ def import_rows(conn: psycopg.Connection, payload: dict) -> int:
         humidity = values["relative_humidity_2m"]
         rain = values["precipitation"]
         leaf_wetness = estimated_leaf_wetness(humidity, rain, air_temp, leaf_wetness)
+        measurements = {
+            "air_temp_c": air_temp, "air_humidity_pct": humidity,
+            "soil_moisture_shallow_pct": None if values["soil_moisture_0_to_7cm"] is None else values["soil_moisture_0_to_7cm"] * 100,
+            "soil_moisture_deep_pct": None if values["soil_moisture_7_to_28cm"] is None else values["soil_moisture_7_to_28cm"] * 100,
+            "soil_temp_c": values["soil_temperature_0_to_7cm"], "solar_radiation_w_m2": values["shortwave_radiation"],
+            "rainfall_mm": rain, "leaf_wetness_pct": leaf_wetness,
+        }
+        metadata = build_measurement_metadata(measurements, "weather_model", {
+            "soil_moisture_shallow_pct": {"semantics":"volumetric_water_content_pct","depth_cm":[0,7]},
+            "soil_moisture_deep_pct": {"semantics":"volumetric_water_content_pct","depth_cm":[7,28]},
+            "rainfall_mm": {"interval_seconds":3600,"semantics":"preceding_interval_sum_mm"},
+            "leaf_wetness_pct": {"source_kind":"derived_estimate","is_estimated":True,"method":"synthetic rain-humidity-temperature proxy"},
+        })
         observed_at = datetime.fromisoformat(timestamp).replace(
-            tzinfo=ZoneInfo("Asia/Kolkata")
+            tzinfo=ZoneInfo(profile["timezone"])
         )
         rows.append(
             (
                 observed_at,
-                LOCATION_NAME,
-                LATITUDE,
-                LONGITUDE,
+                profile["location_name"],
+                profile["latitude"],
+                profile["longitude"],
                 "open-meteo-historical-reanalysis",
                 "ERA5",
                 True,
@@ -104,7 +116,12 @@ def import_rows(conn: psycopg.Connection, payload: dict) -> int:
                 rain,
                 leaf_wetness,
                 True,
-                json.dumps({"time": timestamp, **values, "leaf_wetness_proxy_pct": leaf_wetness}),
+                json.dumps({"time": timestamp, **values, "leaf_wetness_proxy_pct": leaf_wetness,
+                            "source_kind": "weather_model", "soil_moisture_semantics": "volumetric_water_content_pct",
+                            "measurement_metadata": metadata}),
+                json.dumps(metadata),
+                datetime.now(ZoneInfo(profile["timezone"])),
+                0, 7, 7, 28,
             )
         )
 
@@ -116,9 +133,15 @@ def import_rows(conn: psycopg.Connection, payload: dict) -> int:
                 is_simulated, air_temp_c, air_humidity_pct,
                 soil_moisture_shallow_pct, soil_moisture_deep_pct, soil_temp_c,
                 solar_radiation_w_m2, rainfall_mm, leaf_wetness_pct,
-                leaf_wetness_is_estimated, raw_json
+                leaf_wetness_is_estimated, raw_json,measurement_metadata,
+                source_kind,received_at,timestamp_quality,
+                soil_moisture_semantics,soil_moisture_shallow_top_cm,
+                soil_moisture_shallow_bottom_cm,soil_moisture_deep_top_cm,
+                soil_moisture_deep_bottom_cm,rainfall_interval_seconds,rainfall_semantics,quality_status
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,%s::jsonb,
+                'weather_model',%s,'model_timestamp','volumetric_water_content_pct',%s,%s,%s,%s,
+                3600,'preceding_interval_sum_mm','valid'
             ) ON CONFLICT (observed_at, location_name, source_model) DO NOTHING
             """,
             rows,
@@ -130,16 +153,20 @@ def main() -> None:
     if not DATABASE_URL:
         raise SystemExit("Set DATABASE_URL in .env before running this importer")
 
-    # ERA5 archive updates with a several-day delay; stop at its latest complete day.
-    end_date = date.today() - timedelta(days=6)
-    start_date = end_date - timedelta(days=364)
     with psycopg.connect(DATABASE_URL) as conn:
-        print("Fetching", start_date, "through", end_date, flush=True)
-        payload = fetch_period(start_date, end_date)
-        inserted = import_rows(conn, payload)
+        row = conn.execute("SELECT location_name,latitude,longitude,timezone FROM site_profile WHERE id=1").fetchone()
+        if not row:
+            raise SystemExit("No active site profile exists")
+        profile = dict(zip(("location_name","latitude","longitude","timezone"),row))
+        # ERA5 archive updates with a several-day delay; stop at its latest complete day locally.
+        end_date = datetime.now(ZoneInfo(profile["timezone"])).date() - timedelta(days=6)
+        start_date = end_date - timedelta(days=364)
+        print("Fetching", start_date, "through", end_date, "for", profile["location_name"], flush=True)
+        payload = fetch_period(start_date, end_date, profile)
+        inserted = import_rows(conn, payload, profile)
         conn.commit()
 
-    print(f"Imported {inserted} hourly rows for {LOCATION_NAME}.")
+    print(f"Imported {inserted} hourly rows for {profile['location_name']}.")
     print("All environmental values are reanalysis/model estimates, not Wokwi hardware measurements.")
 
 

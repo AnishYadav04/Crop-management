@@ -36,6 +36,8 @@ The `mqtt-ingestor` container listens on `broker.hivemq.com:1883`, topic `crop/f
 ```json
 {
   "device_id": "wokwi-crop-sim-01",
+  "device_session_id": "unique-per-simulator-boot",
+  "sample_interval_seconds": 10,
   "timestamp_utc": "2026-10-31T00:00:00Z",
   "sample_number": 0,
   "simulation": true,
@@ -56,7 +58,7 @@ Light output is approximate and the potentiometer percentages are normalized sim
 
 ## Historical dataset in PostgreSQL
 
-The project includes a PostgreSQL 18 container and a one-year hourly historical importer for Kapriwas, Rewari (28.24331, 76.80864). Start Docker Desktop, then run:
+The project includes a PostgreSQL 18 container and a one-year hourly historical importer. It reads the location, coordinates, and timezone from the active database site profile, currently Kapriwas, Rewari (28.24331, 76.80864). Start Docker Desktop, then run:
 
 ```powershell
 docker compose up -d
@@ -102,9 +104,11 @@ Open [http://localhost:8000](http://localhost:8000) for current readings, alert 
 
 Every 15 minutes the service reads Open-Meteo current model conditions, stores the eight sensor-like values in PostgreSQL, and marks them as simulated/model-derived. Air temperature, humidity, rainfall, solar radiation, soil temperature, and soil moisture come from the weather model. Leaf wetness is a simple synthetic proxy. These are not direct Wokwi or physical-sensor readings; Open-Meteo current conditions are based on weather-model data. Wokwi MQTT readings are also stored in PostgreSQL as a separately labeled simulation source.
 
-The shared maintenance rule creates an event when rain starts after a configurable temperature drop. Both weather-model and Wokwi streams use it; a profile-configured cooldown prevents repeated alerts. Research uses the no-key web-search fallback by default. If `OPENAI_API_KEY` is configured locally, the agent uses the OpenAI Responses API web-search tool to write a cautious cited summary; source links are stored with the event. The site profile is set to Sugarcane for Kapriwas; growth stage and soil remain unspecified until provided. Crop name, stage, soil type, and thresholds can be changed in the dashboard. A weather pattern is not a confirmed crop diagnosis. See [SUGARCANE_PROFILE.md](SUGARCANE_PROFILE.md) for the local research summary and presentation guidance.
+The versioned informational rule creates an event when rain starts after a configurable temperature drop, with missing-rain and source-gap checks, bounded temperature matching, and source-specific cooldown. Research uses the no-key web-search fallback by default. If `OPENAI_API_KEY` is configured locally, the agent uses the OpenAI Responses API web-search tool to write a cautious cited summary; source links are stored with the event. Trusted-domain matching uses hostname boundaries, and stale `searching` jobs return to the queue after a worker crash. The site profile is set to Sugarcane for Kapriwas; growth stage and soil remain unspecified until provided. Crop context can be changed in the dashboard. Moisture thresholds remain unset until field calibration and evidence are available. A weather pattern is not a confirmed crop diagnosis. See [SUGARCANE_PROFILE.md](SUGARCANE_PROFILE.md) for the local research summary and presentation guidance.
 
-The forecast panel remains explicitly gated until enough recent live weather history exists. The initial forecasting experiment is trained on ERA5 archive rows; it should not directly trigger agronomic actions until it is evaluated on the live feed and crop-specific stress labels are collected.
+The forecast panel is gated on 169 consecutive completed hourly observations with source coverage, including the 168-hour lag required by the model. Training and serving share the same causal feature code. Rainfall intervals are summed while state variables are averaged. The app persists forecast origin/valid times, model version, method, training source, and historical holdout MAE, then attaches later hourly readings for prospective evaluation. The initial models were trained on ERA5 archive rows; transfer to the live weather-model feed is unvalidated, so forecasts do not trigger agronomic actions.
+
+Database changes are versioned in `database/init/*.sql` and applied by the one-off `migrate` Compose service. Observations record source category, receive time, timestamp quality, soil-moisture meaning/depth, rainfall interval semantics, per-measurement units/provenance, and quality status. Derived leaf-wetness estimates are identified separately from source weather data. Reading APIs return named fields and support source-isolated queries. Event acknowledgement and resolution are separate, and field actions appear in history even when notes are blank.
 
 To inspect readings and events:
 

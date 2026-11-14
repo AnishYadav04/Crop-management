@@ -9,16 +9,15 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-from ddgs import DDGS
 import psycopg
 
 
 TRUSTED_SUFFIXES = (
-    ".gov.in",
-    ".gov",
-    ".edu",
-    ".edu.in",
-    ".ac.in",
+    "gov.in",
+    "gov",
+    "edu",
+    "edu.in",
+    "ac.in",
     "icar.org.in",
 )
 MAX_RESULTS = 6
@@ -71,7 +70,7 @@ def make_query(event_type: str, details: dict) -> str:
     crop = details.get("crop_name")
     stage = details.get("growth_stage")
     crop_context = " ".join(value for value in (crop, stage) if value and value != "unspecified")
-    if event_type == "rain_started_after_temperature_drop":
+    if event_type == "weather_rain_onset_after_temperature_drop":
         query = (
             "Haryana agricultural university crop management after rainfall "
             "cool weather leaf wetness drainage disease prevention"
@@ -86,10 +85,12 @@ def _is_trusted(url: str) -> bool:
         host = (urlparse(url).hostname or "").lower()
     except ValueError:
         return False
-    return any(host == suffix.lstrip(".") or host.endswith(suffix) for suffix in TRUSTED_SUFFIXES)
+    return any(host == domain or host.endswith("." + domain) for domain in TRUSTED_SUFFIXES)
 
 
 def search_sources(query: str) -> list[dict]:
+    from ddgs import DDGS
+
     raw = DDGS().text(query, region="in-en", safesearch="moderate", max_results=12)
     results = []
     seen = set()
@@ -124,9 +125,14 @@ def summarize_event(event_type: str, details: dict, sources: list[dict]) -> str:
             "and confirm actual field conditions before acting."
         )
     else:
+        source_kind = details.get("source_kind", "unknown source")
+        interval_seconds = details.get("rainfall_interval_seconds")
+        interval_text = f"the preceding {interval_seconds}-second interval" if interval_seconds else "an interval of unspecified duration"
+        temperature_hours = details.get("temperature_window_hours")
+        window_text = f"{temperature_hours} hours" if temperature_hours else "an unspecified comparison window"
         note = (
-            f"A model-based weather feed detected rain ({rain} mm in the latest interval) "
-            f"after a {temp_drop} °C temperature drop over six hours. "
+            f"A {source_kind} feed reported rain ({rain} mm over {interval_text}) "
+            f"after a {temp_drop} °C temperature drop over {window_text}. "
             "This is a weather-condition alert, not a confirmed crop problem. "
             "Check the crop and field conditions, especially standing water and prolonged canopy wetness, "
             f"then use the linked guidance for {crop_name} at {growth_stage} if that context is known."
@@ -140,11 +146,19 @@ def summarize_event(event_type: str, details: dict, sources: list[dict]) -> str:
 
 def research_pending_events(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
+        # Recover tasks left in progress by a worker restart or network timeout.
+        cur.execute(
+            """UPDATE maintenance_events SET research_status='pending'
+                 WHERE research_status='searching' AND created_at < now()-interval '10 minutes'"""
+        )
         cur.execute(
             """
             SELECT id, event_type, details
             FROM maintenance_events
             WHERE research_status = 'pending'
+               OR (research_status IN ('failed','no_results')
+                   AND research_attempts < 3
+                   AND COALESCE(research_next_attempt_at,created_at) <= now())
             ORDER BY detected_at
             LIMIT 5
             FOR UPDATE SKIP LOCKED
@@ -153,7 +167,7 @@ def research_pending_events(conn: psycopg.Connection) -> None:
         pending = cur.fetchall()
         for event_id, _event_type, _details in pending:
             cur.execute(
-                "UPDATE maintenance_events SET research_status = 'searching' WHERE id = %s",
+                "UPDATE maintenance_events SET research_status = 'searching', research_attempts=research_attempts+1 WHERE id = %s",
                 (event_id,),
             )
     conn.commit()
@@ -183,7 +197,11 @@ def research_pending_events(conn: psycopg.Connection) -> None:
                 """
                 UPDATE maintenance_events
                 SET research_status = %s, search_query = %s, research_note = %s,
-                    sources = %s::jsonb, researched_at = %s, research_error = %s
+                    sources = %s::jsonb, researched_at = %s, research_error = %s,
+                    research_next_attempt_at = CASE
+                        WHEN %s IN ('failed','no_results') AND research_attempts < 3
+                        THEN now() + (interval '1 minute' * research_attempts)
+                        ELSE NULL END
                 WHERE id = %s
                 """,
                 (
@@ -193,6 +211,7 @@ def research_pending_events(conn: psycopg.Connection) -> None:
                     json.dumps(sources),
                     datetime.now(ZoneInfo("Asia/Kolkata")),
                     error,
+                    status,
                     event_id,
                 ),
             )
