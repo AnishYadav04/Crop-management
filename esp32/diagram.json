@@ -1,4 +1,3 @@
-
 {
   "version": 1,
   "author": "AI-Powered Crop Monitoring System",
@@ -13,65 +12,89 @@
     },
     {
       "type": "wokwi-dht22",
-      "id": "dht1",
+      "id": "air_conditions",
       "top": -130,
       "left": 250,
-      "attrs": {
-        "temperature": "28",
-        "humidity": "65"
-      }
+      "attrs": { "temperature": "28", "humidity": "65" }
     },
     {
       "type": "wokwi-potentiometer",
-      "id": "soil1",
-      "top": 80,
+      "id": "soil_moisture_shallow",
+      "top": 40,
       "left": 260,
-      "attrs": {
-        "value": "250"
-      }
+      "attrs": { "value": "700" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "soil_moisture_deep",
+      "top": 145,
+      "left": 260,
+      "attrs": { "value": "760" }
     },
     {
       "type": "wokwi-photoresistor-sensor",
-      "id": "ldr1",
-      "top": 230,
-      "left": 250,
+      "id": "light_sensor",
+      "top": 250,
+      "left": 260,
       "attrs": {}
     },
     {
+      "type": "wokwi-ntc-temperature-sensor",
+      "id": "soil_temperature",
+      "top": -110,
+      "left": 500,
+      "attrs": { "temperature": "24", "beta": "3950" }
+    },
+    {
       "type": "wokwi-potentiometer",
-      "id": "ph1",
-      "top": 370,
-      "left": 260,
-      "attrs": {
-        "value": "180"
-      }
+      "id": "rainfall_input",
+      "top": 40,
+      "left": 500,
+      "attrs": { "value": "0" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "leaf_wetness_input",
+      "top": 145,
+      "left": 500,
+      "attrs": { "value": "0" }
     },
     {
       "type": "board-ssd1306",
       "id": "oled1",
       "top": -140,
       "left": -240,
-      "attrs": {
-        "i2cAddress": "0x3c"
-      }
+      "attrs": { "i2cAddress": "0x3c" }
     }
   ],
   "connections": [
-    ["esp:3V3", "dht1:VCC", "red", ["v0"]],
-    ["esp:GND.1", "dht1:GND", "black", ["v0"]],
-    ["esp:15", "dht1:SDA", "green", ["v0"]],
+    ["esp:3V3", "air_conditions:VCC", "red", ["v0"]],
+    ["esp:GND.1", "air_conditions:GND", "black", ["v0"]],
+    ["esp:15", "air_conditions:SDA", "green", ["v0"]],
 
-    ["esp:3V3", "soil1:VCC", "red", ["v0"]],
-    ["esp:GND.1", "soil1:GND", "black", ["v0"]],
-    ["esp:34", "soil1:SIG", "green", ["v0"]],
+    ["esp:3V3", "soil_moisture_shallow:VCC", "red", ["v0"]],
+    ["esp:GND.1", "soil_moisture_shallow:GND", "black", ["v0"]],
+    ["esp:34", "soil_moisture_shallow:SIG", "green", ["v0"]],
 
-    ["esp:3V3", "ldr1:VCC", "red", ["v0"]],
-    ["esp:GND.1", "ldr1:GND", "black", ["v0"]],
-    ["esp:35", "ldr1:AO", "green", ["v0"]],
+    ["esp:3V3", "soil_moisture_deep:VCC", "red", ["v0"]],
+    ["esp:GND.1", "soil_moisture_deep:GND", "black", ["v0"]],
+    ["esp:33", "soil_moisture_deep:SIG", "green", ["v0"]],
 
-    ["esp:3V3", "ph1:VCC", "red", ["v0"]],
-    ["esp:GND.1", "ph1:GND", "black", ["v0"]],
-    ["esp:32", "ph1:SIG", "green", ["v0"]],
+    ["esp:3V3", "light_sensor:VCC", "red", ["v0"]],
+    ["esp:GND.1", "light_sensor:GND", "black", ["v0"]],
+    ["esp:35", "light_sensor:AO", "green", ["v0"]],
+
+    ["esp:3V3", "soil_temperature:VCC", "red", ["v0"]],
+    ["esp:GND.1", "soil_temperature:GND", "black", ["v0"]],
+    ["esp:32", "soil_temperature:OUT", "blue", ["v0"]],
+
+    ["esp:3V3", "rainfall_input:VCC", "red", ["v0"]],
+    ["esp:GND.1", "rainfall_input:GND", "black", ["v0"]],
+    ["esp:36", "rainfall_input:SIG", "green", ["v0"]],
+
+    ["esp:3V3", "leaf_wetness_input:VCC", "red", ["v0"]],
+    ["esp:GND.1", "leaf_wetness_input:GND", "black", ["v0"]],
+    ["esp:39", "leaf_wetness_input:SIG", "green", ["v0"]],
 
     ["esp:3V3", "oled1:VCC", "red", ["v0"]],
     ["esp:GND.1", "oled1:GND", "black", ["v0"]],

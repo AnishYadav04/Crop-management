@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: crop-management-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: crop_management
+      POSTGRES_USER: crop_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - crop_postgres_data:/var/lib/postgresql
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crop_app -d crop_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  live-monitor:
+    build: .
+    container_name: crop-management-live-monitor
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+      POLL_INTERVAL_SECONDS: "900"
+      CROP_NAME: ${CROP_NAME:-unspecified}
+      CROP_GROWTH_STAGE: ${CROP_GROWTH_STAGE:-unspecified}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_RESEARCH_MODEL: ${OPENAI_RESEARCH_MODEL:-gpt-6-astra}
+
+  mqtt-ingestor:
+    build: .
+    container_name: crop-management-mqtt-ingestor
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+      MQTT_BROKER: ${MQTT_BROKER:-broker.hivemq.com}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_TOPIC: ${MQTT_TOPIC:-crop/field1/sensors/demo73921}
+      MQTT_TLS: ${MQTT_TLS:-false}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-crop-management-ingestor}
+      LOCATION_NAME: ${LOCATION_NAME:-Kapriwas, Rewari, Haryana, India}
+      LOCATION_LATITUDE: ${LOCATION_LATITUDE:-28.24331}
+      LOCATION_LONGITUDE: ${LOCATION_LONGITUDE:-76.80864}
+    command: ["python", "-u", "-m", "services.mqtt_ingestor"]
+
+  dashboard:
+    build: .
+    container_name: crop-management-dashboard
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+      DASHBOARD_PORT: "8000"
+      DEMO_MODE: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./artifacts/forecasting:/app/artifacts/forecasting:ro
+    command: ["python", "-u", "-m", "services.dashboard"]
+
+  research-worker:
+    build: .
+    container_name: crop-management-research-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_RESEARCH_MODEL: ${OPENAI_RESEARCH_MODEL:-gpt-6-astra}
+      RESEARCH_POLL_SECONDS: "30"
+    command: ["python", "-u", "-m", "services.research_worker"]
+
+volumes:
+  crop_postgres_data:

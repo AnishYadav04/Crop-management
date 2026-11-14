@@ -1,11 +1,13 @@
+"""Wokwi crop-monitoring simulator: read simulated sensors and publish MQTT data."""
 
+import json
+import math
 import network
 import time
-import json
-import random
-import math
 import ntptime
 import machine
+from machine import ADC, Pin
+
 
 # ---------- CONFIGURATION ----------
 WIFI_SSID = "Wokwi-GUEST"
@@ -14,153 +16,164 @@ WIFI_PASSWORD = ""
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = b"crop/field1/sensors/demo73921"
-
 PUBLISH_INTERVAL = 10
+
+DEVICE_ID = "wokwi-crop-sim-01"
+DHT_PIN = 15
 
 mqtt_client = None
 rtc_synced = False
 start_time = time.ticks_ms()
 
-# ---------- WIFI ----------
+
+# ADC1 pins remain available while Wi-Fi is active on the simulated ESP32.
+def make_adc(pin_number):
+    adc = ADC(Pin(pin_number))
+    adc.atten(ADC.ATTN_11DB)
+    return adc
+
+
+soil_moisture_shallow_adc = make_adc(34)
+soil_moisture_deep_adc = make_adc(33)
+soil_temperature_adc = make_adc(32)
+light_adc = make_adc(35)
+rainfall_adc = make_adc(36)
+leaf_wetness_adc = make_adc(39)
+
+try:
+    import dht
+
+    air_sensor = dht.DHT22(Pin(DHT_PIN))
+except Exception as exc:
+    air_sensor = None
+    print("DHT22 setup failed:", exc)
+
+def adc_percent(adc):
+    return round(adc.read() * 100 / 4095, 1)
+
+
+def read_light_lux():
+    # Convert the Wokwi photoresistor module's analog output to approximate lux.
+    analog_value = light_adc.read()
+    voltage = analog_value * 3.3 / 4095
+    if voltage <= 0.001:
+        return 0.0
+    if voltage >= 3.299:
+        return 100000.0
+
+    resistance = 2000 * voltage / (1 - voltage / 3.3)
+    if resistance <= 0:
+        return 100000.0
+
+    gamma = 0.7
+    rl10 = 50
+    lux = (rl10 * 1000 * (10 ** gamma) / resistance) ** (1 / gamma)
+    return round(max(0, min(100000, lux)), 1)
+
+
+def read_air_conditions():
+    if air_sensor is None:
+        return None, None
+    try:
+        air_sensor.measure()
+        return round(air_sensor.temperature(), 2), round(air_sensor.humidity(), 2)
+    except Exception as exc:
+        print("DHT22 read failed:", exc)
+        return None, None
+
+
+def read_soil_temperature():
+    # Wokwi NTC uses a 10K thermistor and 10K divider; beta must match diagram.json.
+    analog_value = soil_temperature_adc.read()
+    if analog_value <= 0 or analog_value >= 4095:
+        return None
+    beta = 3950
+    resistance_ratio = 4095 / analog_value - 1
+    temp_kelvin = 1 / (math.log(1 / resistance_ratio) / beta + 1 / 298.15)
+    return round(temp_kelvin - 273.15, 2)
+
+
+def read_sensors():
+    air_temp_c, air_humidity_pct = read_air_conditions()
+    return {
+        "air_temp_c": air_temp_c,
+        "air_humidity_pct": air_humidity_pct,
+        "soil_moisture_shallow_pct": adc_percent(soil_moisture_shallow_adc),
+        "soil_moisture_deep_pct": adc_percent(soil_moisture_deep_adc),
+        "soil_temp_c": read_soil_temperature(),
+        "light_lux": read_light_lux(),
+        # These two inputs are simulation controls, not physical measurements.
+        "rainfall_mm": round(rainfall_adc.read() * 20 / 4095, 1),
+        "leaf_wetness_pct": adc_percent(leaf_wetness_adc),
+    }
+
+
+# ---------- WIFI AND TIME ----------
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-
     if not wlan.isconnected():
         print("Connecting to Wi-Fi...")
         wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-
         for _ in range(30):
             if wlan.isconnected():
                 break
             time.sleep(1)
-
     print("Wi-Fi status:", wlan.isconnected())
     return wlan.isconnected()
 
 
-# ---------- TIMESTAMP ----------
 def sync_clock():
     global rtc_synced
-
     try:
         ntptime.settime()
         rtc_synced = True
         print("UTC clock synchronized")
-    except Exception as e:
-        print("NTP unavailable:", e)
+    except Exception as exc:
+        print("NTP unavailable:", exc)
 
 
 def get_timestamp():
     if rtc_synced:
-        t = time.localtime()
-        return (
-            "%04d-%02d-%02dT%02d:%02d:%02dZ"
-            % (t[0], t[1], t[2], t[3], t[4], t[5])
+        now = time.localtime()
+        return "%04d-%02d-%02dT%02d:%02d:%02dZ" % (
+            now[0], now[1], now[2], now[3], now[4], now[5]
         )
-
-    elapsed = time.ticks_diff(
-        time.ticks_ms(), start_time
-    ) // 1000
-
+    elapsed = time.ticks_diff(time.ticks_ms(), start_time) // 1000
     return "uptime+%ds" % elapsed
 
 
 # ---------- MQTT ----------
 def connect_mqtt():
     global mqtt_client
-
     try:
         from umqtt.simple import MQTTClient
     except ImportError:
         try:
             import mip
+
             mip.install("umqtt.simple")
             from umqtt.simple import MQTTClient
-        except Exception as e:
-            print("MQTT library unavailable:", e)
+        except Exception as exc:
+            print("MQTT library unavailable:", exc)
             return False
 
     try:
         mqtt_client = MQTTClient(
-            "crop-" + str(random.getrandbits(24)),
+            "crop-sim-%06x" % machine.rng(),
             MQTT_BROKER,
             port=MQTT_PORT,
-            keepalive=60
+            keepalive=60,
         )
         mqtt_client.connect()
         print("MQTT connected")
         return True
-
-    except Exception as e:
+    except Exception as exc:
         mqtt_client = None
-        print("MQTT connection failed:", e)
+        print("MQTT connection failed:", exc)
         return False
 
 
-# ---------- VIRTUAL CROP SENSORS ----------
-def read_sensors(sample):
-    # Simulated day/night temperature cycle
-    phase = sample / 8
-    temperature = (
-        27 + 5 * max(0, math.sin(phase))
-        + random.uniform(-1, 1)
-    )
-
-    humidity = (
-        78 - (temperature - 27) * 2
-        + random.uniform(-3, 3)
-    )
-
-    # Soil moisture decreases between irrigation events
-    soil_moisture = (
-        70 - (sample % 30) * 1.8
-        + random.uniform(-2, 2)
-    )
-
-    light = max(
-        0,
-        int(800 * max(0, math.sin(phase))
-            + random.randint(-30, 30))
-    )
-
-    ph = 6.5 + random.uniform(-0.3, 0.3)
-
-    # Inject a hot/dry anomaly every 25 samples
-    anomaly = sample > 0 and sample % 25 == 0
-
-    if anomaly:
-        temperature += 7
-        humidity -= 15
-        soil_moisture -= 18
-
-    # Keep values within plausible simulation ranges
-    temperature = round(temperature, 2)
-    humidity = round(max(10, min(100, humidity)), 2)
-    soil_moisture = round(
-        max(0, min(100, soil_moisture)), 2
-    )
-    light = max(0, min(1000, light))
-    ph = round(max(0, min(14, ph)), 2)
-
-    risk = (
-        "HIGH" if soil_moisture < 25 or temperature > 38
-        else "MEDIUM" if soil_moisture < 40 or temperature > 34
-        else "LOW"
-    )
-
-    return {
-        "temperature": temperature,
-        "humidity": humidity,
-        "soil_moisture": soil_moisture,
-        "light": light,
-        "ph": ph,
-        "simulated_anomaly": anomaly,
-        "risk": risk
-    }
-
-
-# ---------- MAIN LOOP ----------
 def main():
     global mqtt_client
 
@@ -169,43 +182,33 @@ def main():
         connect_mqtt()
 
     sample = 0
-
     while True:
-        data = read_sensors(sample)
-
         payload = {
-            "device_id": "esp32-crop-01",
+            "device_id": DEVICE_ID,
             "timestamp_utc": get_timestamp(),
-            "sample_number": sample
+            "sample_number": sample,
+            "simulation": True,
+            "sensors": read_sensors(),
         }
-
-        payload.update(data)
-
         message = json.dumps(payload)
         print("SENSOR:", message)
 
-        
         if mqtt_client is not None:
             try:
                 mqtt_client.publish(MQTT_TOPIC, message)
                 print("Published:", MQTT_TOPIC.decode())
-
-            except Exception as e:
-                print("Publish failed:", e)
-
+            except Exception as exc:
+                print("Publish failed:", exc)
                 try:
                     mqtt_client.disconnect()
                 except Exception:
                     pass
-
                 mqtt_client = None
 
-        # Attempt reconnection if disconnected
         if mqtt_client is None:
             print("Attempting MQTT reconnect...")
             time.sleep(2)
             connect_mqtt()
-
 
         sample += 1
         time.sleep(PUBLISH_INTERVAL)

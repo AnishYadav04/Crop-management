@@ -1,0 +1,7 @@
+.venv/
+.env
+.docker/
+artifacts/
+__pycache__/
+*.py[cod]
+crop_monitoring.db
