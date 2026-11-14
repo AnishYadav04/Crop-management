@@ -313,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"search_configured":search_ready,
                                     "synthesis_configured":synthesis_ready,
                                     "mode":"tavily_gemini" if search_ready and os.getenv("GOOGLE_API_KEY") else "tavily_search_excerpts" if search_ready else "search_result_excerpts",
-                                    "message":"The agent uses Tavily for web search and Gemini to synthesize crop-specific answers." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
+                                    "message":"Tavily search and Gemini synthesis are configured. If Gemini is unreachable, the agent falls back to cited search excerpts." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
                 if parsed.path == "/api/conversations":
                     rows=conn.execute("""SELECT c.id,c.title,c.crop_name,c.updated_at,
                                                count(m.id) AS message_count
