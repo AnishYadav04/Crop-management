@@ -308,10 +308,12 @@ class Handler(BaseHTTPRequestHandler):
                     open_count = conn.execute("SELECT count(*) FROM maintenance_events WHERE event_status <> 'resolved'").fetchone()[0]
                     self.send_json({"sources": [dict(zip(("source_model","source_kind","rows_24h","latest_observed_at","last_received_at"), row)) for row in sources], "open_events": open_count, "as_of": datetime.now(timezone.utc)}); return
                 if parsed.path == "/api/agent/status":
-                    configured=bool(os.getenv("OPENAI_API_KEY"))
-                    self.send_json({"synthesis_configured":configured,
-                                    "mode":"web_search_answer" if configured else "search_result_excerpts",
-                                    "message":"The agent searches the web and synthesizes a cited answer." if configured else "Web search is enabled. No OpenAI API key is configured, so the agent returns cited search-result excerpts instead of a synthesized answer."}); return
+                    search_ready=bool(os.getenv("TAVILY_API_KEY"))
+                    synthesis_ready=bool(os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY"))
+                    self.send_json({"search_configured":search_ready,
+                                    "synthesis_configured":synthesis_ready,
+                                    "mode":"tavily_gemini" if search_ready and os.getenv("GOOGLE_API_KEY") else "tavily_search_excerpts" if search_ready else "search_result_excerpts",
+                                    "message":"The agent uses Tavily for web search and Gemini to synthesize crop-specific answers." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
                 if parsed.path == "/api/conversations":
                     rows=conn.execute("""SELECT c.id,c.title,c.crop_name,c.updated_at,
                                                count(m.id) AS message_count
