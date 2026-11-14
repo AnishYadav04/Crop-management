@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 import numpy as np
@@ -10,7 +11,7 @@ from ml.features import FEATURE_TARGETS, REQUIRED_HISTORY_ROWS, exact_hourly_win
 from services.data_quality import build_measurement_metadata, normalize_sensor_values, parse_observation_time
 from services.dashboard import aggregate_weather_observations, hourly_source_is_fresh
 from services.event_rules import build_event_key
-from services.research_agent import _is_trusted, summarize_event
+from services.research_agent import _is_trusted, answer_user_query, summarize_event
 
 
 def sample_frame(rows=200):
@@ -85,6 +86,24 @@ class QualityAndAggregationTests(unittest.TestCase):
 
 
 class ResearchEvidenceTests(unittest.TestCase):
+    @patch.dict("os.environ", {}, clear=True)
+    @patch("services.research_agent.search_sources")
+    def test_chat_search_uses_question_and_field_context_without_api_key(self, search):
+        search.return_value = [{
+            "title":"Agricultural extension advice", "url":"https://example.gov.in/guide",
+            "snippet":"Inspect the field for standing water.", "trusted_domain":True,
+        }]
+        answer, sources, mode = answer_user_query(
+            "What should I inspect after rain?",
+            {"crop_name":"Sugarcane","location_name":"Kapriwas, Haryana",
+             "conversation_history":[{"role":"user","content":"Recent heavy rainfall"}]},
+        )
+        self.assertIn("standing water", answer)
+        self.assertEqual(mode, "search_result_excerpts")
+        self.assertEqual(len(sources), 1)
+        self.assertIn("Recent heavy rainfall", search.call_args.args[0])
+        self.assertIn("Sugarcane", search.call_args.args[0])
+
     def test_event_identity_and_cooldown_scope_include_source(self):
         stamp = pd.Timestamp("2026-11-14T12:00:00+05:30").to_pydatetime()
         simulation = build_event_key("Field A", "wokwi-simulation", "rain", stamp)

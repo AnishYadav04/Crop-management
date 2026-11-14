@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import joblib
 import numpy as np
@@ -15,9 +16,11 @@ import pandas as pd
 import psycopg
 
 from ml.features import FEATURE_TARGETS, REQUIRED_HISTORY_ROWS, exact_hourly_window, make_features
+from services.research_agent import answer_user_query
 
 DB = os.getenv("DATABASE_URL")
 HTML = Path(__file__).resolve().parents[1] / "dashboard" / "index.html"
+ASSISTANT_HTML = Path(__file__).resolve().parents[1] / "dashboard" / "assistant.html"
 ARTIFACTS = Path(__file__).resolve().parents[1] / "artifacts" / "forecasting"
 TARGETS = FEATURE_TARGETS
 TZ = "Asia/Kolkata"
@@ -52,6 +55,8 @@ def _load_metrics(path: Path) -> pd.DataFrame:
 
 
 def json_safe(value):
+    if isinstance(value, UUID):
+        return str(value)
     if isinstance(value, (date, datetime, pd.Timestamp)):
         return value.isoformat()
     if isinstance(value, np.generic):
@@ -224,10 +229,69 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request body must be a JSON object")
         return value
 
+    def handle_chat(self, data: dict) -> None:
+        question=str(data.get("message", "")).strip()
+        if not question:
+            self.send_json({"error":"write a question first"},400); return
+        if len(question)>2000:
+            self.send_json({"error":"questions are limited to 2,000 characters"},400); return
+        raw_conversation=data.get("conversation_id")
+        try:
+            conversation_id=str(UUID(raw_conversation)) if raw_conversation else None
+        except (ValueError,TypeError,AttributeError):
+            self.send_json({"error":"conversation_id must be a valid UUID"},400); return
+
+        with psycopg.connect(DB) as conn:
+            profile=conn.execute("""SELECT location_name,crop_name,crop_variety,growth_stage,soil_type
+                                      FROM site_profile WHERE id=1""").fetchone()
+            if not profile:
+                self.send_json({"error":"no active crop profile is configured"},503); return
+            location,crop,variety,stage,soil=profile
+            if conversation_id:
+                exists=conn.execute("SELECT id FROM agent_conversations WHERE id=%s",(conversation_id,)).fetchone()
+                if not exists:
+                    self.send_json({"error":"conversation not found"},404); return
+                history=conn.execute("""SELECT role,content FROM agent_messages
+                                        WHERE conversation_id=%s ORDER BY created_at DESC,id DESC LIMIT 10""",
+                                     (conversation_id,)).fetchall()
+                history=[{"role":role,"content":content} for role,content in reversed(history)]
+            else:
+                title=question.replace("\n"," ")[:100]
+                conversation_id=str(conn.execute("""INSERT INTO agent_conversations(title,location_name,crop_name)
+                                                  VALUES(%s,%s,%s) RETURNING id""",
+                                             (title,location,crop)).fetchone()[0])
+                history=[]
+            conn.execute("INSERT INTO agent_messages(conversation_id,role,content) VALUES(%s,'user',%s)",
+                         (conversation_id,question))
+            conn.execute("UPDATE agent_conversations SET updated_at=now() WHERE id=%s",(conversation_id,))
+            conn.commit()
+
+        context={"location_name":location,"crop_name":crop,"crop_variety":variety,
+                 "growth_stage":stage,"soil_type":soil,"conversation_history":history}
+        try:
+            answer,sources,mode=answer_user_query(question,context)
+        except Exception as exc:
+            answer=("I couldn't complete the web search just now. Please try again in a moment, "
+                    "or open a source from the crop profile's research section.")
+            sources=[]; mode="search_failed"
+            print(f"Crop assistant search failed: {type(exc).__name__}",flush=True)
+
+        with psycopg.connect(DB) as conn:
+            conn.execute("""INSERT INTO agent_messages(conversation_id,role,content,sources,answer_mode)
+                              VALUES(%s,'assistant',%s,%s::jsonb,%s)""",
+                         (conversation_id,answer,json.dumps(sources),mode))
+            conn.execute("UPDATE agent_conversations SET updated_at=now() WHERE id=%s",(conversation_id,))
+            conn.commit()
+        self.send_json({"conversation_id":conversation_id,"answer":answer,"sources":sources,"answer_mode":mode})
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             data = HTML.read_bytes()
+            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
+        if parsed.path == "/assistant":
+            data = ASSISTANT_HTML.read_bytes()
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
         query = parse_qs(parsed.query)
@@ -243,6 +307,30 @@ class Handler(BaseHTTPRequestHandler):
                     ).fetchall()
                     open_count = conn.execute("SELECT count(*) FROM maintenance_events WHERE event_status <> 'resolved'").fetchone()[0]
                     self.send_json({"sources": [dict(zip(("source_model","source_kind","rows_24h","latest_observed_at","last_received_at"), row)) for row in sources], "open_events": open_count, "as_of": datetime.now(timezone.utc)}); return
+                if parsed.path == "/api/agent/status":
+                    configured=bool(os.getenv("OPENAI_API_KEY"))
+                    self.send_json({"synthesis_configured":configured,
+                                    "mode":"web_search_answer" if configured else "search_result_excerpts",
+                                    "message":"The agent searches the web and synthesizes a cited answer." if configured else "Web search is enabled. No OpenAI API key is configured, so the agent returns cited search-result excerpts instead of a synthesized answer."}); return
+                if parsed.path == "/api/conversations":
+                    rows=conn.execute("""SELECT c.id,c.title,c.crop_name,c.updated_at,
+                                               count(m.id) AS message_count
+                                          FROM agent_conversations c
+                                          LEFT JOIN agent_messages m ON m.conversation_id=c.id
+                                         GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 50""").fetchall()
+                    fields=("id","title","crop_name","updated_at","message_count")
+                    self.send_json([dict(zip(fields,row)) for row in rows]); return
+                if parsed.path.startswith("/api/conversations/"):
+                    raw_id=parsed.path.rsplit("/",1)[-1]
+                    conversation_id=str(UUID(raw_id))
+                    exists=conn.execute("SELECT id,title FROM agent_conversations WHERE id=%s",(conversation_id,)).fetchone()
+                    if not exists:
+                        self.send_json({"error":"conversation not found"},404); return
+                    rows=conn.execute("""SELECT id,role,content,sources,answer_mode,created_at
+                                          FROM agent_messages WHERE conversation_id=%s
+                                         ORDER BY created_at,id""",(conversation_id,)).fetchall()
+                    fields=("id","role","content","sources","answer_mode","created_at")
+                    self.send_json({"id":exists[0],"title":exists[1],"messages":[dict(zip(fields,row)) for row in rows]}); return
                 if parsed.path == "/api/readings":
                     hours = min(720, max(1, int(query.get("hours", [24])[0])))
                     source = query.get("source_model", [None])[0]
@@ -307,6 +395,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError,json.JSONDecodeError) as exc:
             self.send_json({"error":str(exc)},400); return
         parts=parsed.path.strip("/").split("/")
+        if parsed.path=="/api/chat":
+            self.handle_chat(data); return
         try:
             with psycopg.connect(DB) as conn:
                 if parsed.path=="/api/demo-alert" and os.getenv("DEMO_MODE","true").lower()=="true":

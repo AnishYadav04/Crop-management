@@ -74,6 +74,8 @@ services:
       DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
       DASHBOARD_PORT: "8000"
       DEMO_MODE: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_RESEARCH_MODEL: ${OPENAI_RESEARCH_MODEL:-gpt-6-astra}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:

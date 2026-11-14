@@ -6,7 +6,7 @@
   <style>
     :root{font:15px Inter,"Segoe UI",Arial,sans-serif;color:#20352a;background:#f3f6f2;--green:#286346;--deep:#173f2e;--muted:#68776e;--line:#dce5dc}
     *{box-sizing:border-box}body{margin:0}header{background:var(--deep);color:white;padding:22px max(20px,calc((100vw - 1200px)/2));display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
-    h1{font-size:22px;margin:0 0 5px}header p{margin:0;color:#c9dfd1}.wrap{max-width:1200px;margin:22px auto;padding:0 18px}
+    h1{font-size:22px;margin:0 0 5px}header p{margin:0;color:#c9dfd1}.wrap{max-width:1200px;margin:22px auto;padding:0 18px}.site-nav{display:flex;gap:8px;align-items:center}.site-nav a{color:#e3f0e7;text-decoration:none;padding:8px 11px;border-radius:8px}.site-nav a.active{background:#315f48;color:white}
     .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,section{background:white;border:1px solid var(--line);border-radius:13px;padding:16px;box-shadow:0 3px 14px #183f2e08}
     .metric span,.muted{font-size:13px;color:var(--muted)}.metric b{display:block;font-size:24px;margin:8px 0 3px}.columns{display:grid;grid-template-columns:1.25fr .75fr;gap:12px;margin-top:12px}section{margin-top:12px}
     h2{font-size:16px;margin:0 0 12px}.toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}select,input,button,textarea{font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:white;color:inherit}button{background:var(--green);color:white;border:0;cursor:pointer;padding:9px 12px}button.secondary{background:#e8f0e9;color:#245239}.toolbar-controls{display:flex;gap:7px;flex-wrap:wrap}
@@ -17,7 +17,7 @@
   </style>
 </head>
 <body>
-<header><div><h1 id="title">Crop care dashboard</h1><p id="subtitle">Connecting to configured field…</p></div><div class="toolbar-controls"><button class="secondary" onclick="enableDesktopNotifications()">Enable notifications</button><button class="secondary" onclick="createDemoAlert()">Create demo alert</button><span class="status" id="updated">Connecting…</span></div></header>
+<header><div><h1 id="title">Crop care dashboard</h1><p id="subtitle">Connecting to configured field…</p></div><nav class="site-nav"><a class="active" href="/">Dashboard</a><a href="/assistant">Ask crop agent</a></nav><div class="toolbar-controls"><button class="secondary" onclick="enableDesktopNotifications()">Enable notifications</button><button class="secondary" onclick="createDemoAlert()">Create demo alert</button><span class="status" id="updated">Connecting…</span></div></header>
 <div id="notificationToast" role="status" aria-live="polite"></div>
 <main class="wrap">
   <div class="grid"><div class="card metric"><span>Air temperature</span><b id="temp">—</b><span id="freshness">Waiting for readings</span></div><div class="card metric"><span>Air humidity</span><b id="humidity">—</b><span>latest selected source</span></div><div class="card metric"><span>Shallow soil moisture</span><b id="soil">—</b><span id="soilMeaning">semantics depend on source</span></div><div class="card metric"><span>Open events</span><b id="open">—</b><span>review recommended</span></div></div>
