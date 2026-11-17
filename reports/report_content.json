@@ -1,0 +1,459 @@
+[
+  {
+    "kind": "title",
+    "text": "IoT End-Term Project Report: Crop Care System"
+  },
+  {
+    "kind": "p",
+    "text": "Details of the group: A simulation based IoT project"
+  },
+  {
+    "kind": "p",
+    "text": "BML Munjal University"
+  },
+  {
+    "kind": "p",
+    "text": "Course  IoT     |     Submitted to  Sandeep Sir"
+  },
+  {
+    "kind": "p",
+    "text": "CSE Section Number: ____________     Group Number: ____________"
+  },
+  {
+    "kind": "table",
+    "rows": [
+      [
+        "No.",
+        "Name",
+        "Enrolment number"
+      ],
+      [
+        "1",
+        "________________________",
+        "____________________"
+      ],
+      [
+        "2",
+        "________________________",
+        "____________________"
+      ],
+      [
+        "3",
+        "________________________",
+        "____________________"
+      ],
+      [
+        "4",
+        "________________________",
+        "____________________"
+      ],
+      [
+        "5",
+        "________________________",
+        "____________________"
+      ]
+    ],
+    "widths": [
+      0.6,
+      3.05,
+      2.618
+    ]
+  },
+  {
+    "kind": "h1",
+    "text": "1. Abstract"
+  },
+  {
+    "kind": "p",
+    "text": "This project demonstrates an IoT crop care system for Kapriwas, Haryana. A simulated ESP32 in Wokwi reads eight environmental inputs and publishes them through MQTT. A Python subscriber stores the readings in PostgreSQL. Rules check repeated low moisture, high moisture and wet-canopy conditions and create inspection alerts. The website presents sensor trends, weather context, action history and a question-answering agent. The agent uses the selected plant profile, recent readings and Tavily web results to prepare a cited response with Gemini. A separate forecasting experiment uses one year of hourly weather reanalysis. The prototype successfully demonstrated sensor transmission, storage and a dry-root-zone alert. Its readings are simulated, its moisture limits are demonstration settings, and its forecasts describe environmental variables rather than crop disease. The project is intended for learning and controlled demonstrations."
+  },
+  {
+    "kind": "p",
+    "text": "Keywords: Internet of Things, Wokwi, MQTT, PostgreSQL, time series, crop care."
+  },
+  {
+    "kind": "h2",
+    "text": "Acknowledgement"
+  },
+  {
+    "kind": "p",
+    "text": "We thank Sandeep Sir and BML Munjal University for the opportunity to present this IoT project. We acknowledge the documentation and open-source tools used to build the simulation, database, forecasting workflow and website."
+  },
+  {
+    "kind": "h1",
+    "text": "2. Introduction"
+  },
+  {
+    "kind": "p",
+    "text": "Farm decisions depend on several conditions at the same time. A low reading near the soil surface may need a manual inspection, while upcoming rain may affect when an inspection or watering decision is made. A useful monitoring system should preserve the evidence, explain what changed and keep a record of the user’s response. This project brings these steps together for a simulated site in Kapriwas."
+  },
+  {
+    "kind": "p",
+    "text": "The main objective is to demonstrate a complete information flow: sensor control, device message, database record, rule-based alert, explanation and recorded human action. The application supports different plants through an editable profile. It does not assume that every crop has the same watering needs."
+  },
+  {
+    "kind": "h2",
+    "text": "(2.1) Objectives and scope"
+  },
+  {
+    "kind": "p",
+    "text": "The project includes an ESP32 simulation, eight input channels, MQTT ingestion, hourly summaries, weather API context, a dashboard, saved conversations and an environmental forecasting experiment. It does not include a physical farm deployment, an automatic pump, soil nutrient measurements or a trained disease classifier."
+  },
+  {
+    "kind": "h2",
+    "text": "(2.2) Literature review"
+  },
+  {
+    "kind": "h2",
+    "text": "Crop water management"
+  },
+  {
+    "kind": "p",
+    "text": "FAO Irrigation and Drainage Paper 56 explains how crop water use and water stress depend on weather, crop characteristics and root-zone water availability [1]. This supports a cautious design: a universal percentage from a simulated knob cannot establish an irrigation dose. The prototype therefore recommends checking conditions and asks for the plant and growth stage."
+  },
+  {
+    "kind": "h2",
+    "text": "IoT simulation and weather information"
+  },
+  {
+    "kind": "p",
+    "text": "Wokwi supports ESP32 networking, allowing a virtual device to communicate with internet services [2]. This makes it suitable for demonstrating MQTT and data ingestion without building hardware. Open-Meteo provides historical weather reanalysis and forecast interfaces [3]. Such data add regional context but do not measure the soil around an individual plant."
+  },
+  {
+    "kind": "h2",
+    "text": "Forecasting and retrieved guidance"
+  },
+  {
+    "kind": "p",
+    "text": "Time-ordered validation avoids training on future observations when evaluating earlier predictions [4]. Gradient boosting offers a practical regression model for lagged environmental data [5]. Tavily supplies retrieved web results for a question [6]; the language model then summarizes them alongside local context. Retrieval helps provide references, but an answer still needs checking for relevance and support."
+  },
+  {
+    "kind": "h2",
+    "text": "(2.3) Design choice"
+  },
+  {
+    "kind": "p",
+    "text": "The system separates monitoring rules from generated advice. Rules determine when a simulated condition deserves attention. The agent explains the evidence and suggests cautious next steps. This allows monitoring to continue even when a web-search or language-model provider is unavailable."
+  },
+  {
+    "kind": "h1",
+    "text": "3. Implementation Methodology"
+  },
+  {
+    "kind": "p",
+    "text": "The work follows a prototype-and-test method. First, define a labelled sensor message and store it with its source and time. Next, detect sustained conditions instead of single spikes. Finally, present the evidence and evaluate the system with controlled simulation scenarios."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.1) Block diagram of the overall architecture"
+  },
+  {
+    "kind": "image",
+    "path": "reports/figures/architecture.png"
+  },
+  {
+    "kind": "caption",
+    "text": "Fig. 1. Overall architecture. Weather and Wokwi remain separate data sources."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.2) Circuit diagram and components"
+  },
+  {
+    "kind": "image",
+    "path": "reports/figures/circuit.png"
+  },
+  {
+    "kind": "caption",
+    "text": "Fig. 2. Signal connections of the current Wokwi circuit, drawn from diagram.json."
+  },
+  {
+    "kind": "table_caption",
+    "text": "Table 1. Simulated components and their connections."
+  },
+  {
+    "kind": "table",
+    "rows": [
+      [
+        "Reading",
+        "Simulation input",
+        "Meaning"
+      ],
+      [
+        "Air temperature and humidity",
+        "DHT22 on GPIO4",
+        "Two configurable channels"
+      ],
+      [
+        "Shallow and deep moisture",
+        "Knobs on GPIO34 and GPIO33",
+        "Relative indexes from 0 to 100%"
+      ],
+      [
+        "Soil temperature",
+        "NTC on GPIO32",
+        "Simulated temperature"
+      ],
+      [
+        "Light",
+        "Photo  resistor on GPIO35",
+        "Approximate lux conversion"
+      ],
+      [
+        "Rainfall",
+        "Knob on GPIO36",
+        "Simulated amount per sample"
+      ],
+      [
+        "Leaf wetness",
+        "Knob on GPIO39",
+        "Relative wetness index"
+      ]
+    ],
+    "widths": [
+      1.9,
+      2.05,
+      2.318
+    ]
+  },
+  {
+    "kind": "h2",
+    "text": "(3.3) Virtual hardware prototype"
+  },
+  {
+    "kind": "p",
+    "text": "The prototype runs on an ESP32 in Wokwi. There is no physical hardware prototype in this project. The DHT22 and NTC controls provide simulated temperature values; knobs represent shallow moisture, deep moisture, rain and leaf wetness. Changing a control affects subsequent device messages. The light input uses an approximate conversion to lux. These eight channels demonstrate sensing and communication, but they are not calibrated field measurements."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.4) Work procedure and storage"
+  },
+  {
+    "kind": "p",
+    "text": "The ESP32 publishes about every ten seconds with a device ID, boot-session ID, sample number and timestamp. The subscriber validates values and stores them in PostgreSQL. Source labels distinguish Wokwi simulation, current model-based weather and the ERA5 archive. Completed hours are summarized for trend review; incomplete coverage is shown rather than treated as a full hour."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.5) Rules for detecting unusual conditions"
+  },
+  {
+    "kind": "p",
+    "text": "Three consecutive fresh readings must span at least 20 seconds and no more than 300 seconds. Default demo limits are below 30% shallow moisture, above 80% shallow moisture, or humidity of at least 85% together with leaf wetness of at least 60%. The monitor runs about every 15 seconds. Existing unresolved alerts and a repeat limit reduce duplicate notifications."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.6) Website implementation"
+  },
+  {
+    "kind": "p",
+    "text": "The dashboard separates simulated field readings from current Kapriwas weather. The chart shows a numbered scale, time labels, the latest value and, for shallow moisture, the demonstration limits. A constant input correctly produces a flat line. Changing a Wokwi control changes future samples rather than rewriting stored history."
+  },
+  {
+    "kind": "image",
+    "path": "reports/figures/graph.png"
+  },
+  {
+    "kind": "caption",
+    "text": "Fig. 3. Actual dashboard graph: shallow moisture changed from about 68% to about 20%."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.7) Actions and guidance"
+  },
+  {
+    "kind": "p",
+    "text": "The Actions panel shows current inspection suggestions. Alert history keeps the original event, its evidence, generated guidance and reference links. Separate labels show whether an alert is awaiting review, reviewed or resolved. Resolving an alert records a workflow decision; it does not change the sensor or confirm that the plant has recovered."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.8) Question answering agent"
+  },
+  {
+    "kind": "p",
+    "text": "A farmer can enter a question on the Ask crop agent page. The service combines the question with the plant profile, latest readings, recent actions and weather outlook. Tavily retrieves relevant pages and Gemini prepares a cited answer. The search can be retried once for an evidence gap, and the application rereads device context before synthesis. When generation fails, a labelled local-status fallback remains available."
+  },
+  {
+    "kind": "h2",
+    "text": "(3.9) Environmental forecasting"
+  },
+  {
+    "kind": "p",
+    "text": "The saved training audit contains 8,760 hourly ERA5 rows from 3 November 2025 to 2 November 2026, with no missing or duplicate hourly timestamps. Models predict temperature, humidity, moisture, soil temperature, rain and solar radiation at 1, 6 and 24 hours. Lagged and rolling features feed a histogram gradient-boosting regressor. Persistence and daily or weekly seasonal baselines provide comparisons. The saved evaluation uses three expanding time folds; reported results below are archived cross-validation results, not a new field trial."
+  },
+  {
+    "kind": "p",
+    "text": "Weather-model soil moisture and Wokwi control percentages have different meanings. The trained archive models are environmental experiments; transferring them to live data needs a feature and validation audit. The plant attention alerts in this project are rule based."
+  },
+  {
+    "kind": "h1",
+    "text": "4. Results and Discussion"
+  },
+  {
+    "kind": "h2",
+    "text": "(4.1) Results from the running system"
+  },
+  {
+    "kind": "p",
+    "text": "The implementation was checked on 17 November 2026. All eight corrected Wokwi channels reached MQTT, PostgreSQL and the dashboard. A demonstration reading showed 28°C air temperature, 65% humidity, 19.6% shallow moisture, 74.3% deep moisture, 24°C soil temperature, about 905 lux, zero simulated rain and zero leaf wetness. Repeated low shallow moisture created a stored dry-root-zone inspection alert."
+  },
+  {
+    "kind": "table_caption",
+    "text": "Table 2. Observed demonstration and software checks."
+  },
+  {
+    "kind": "table",
+    "rows": [
+      [
+        "Check",
+        "Observed result"
+      ],
+      [
+        "Sensor ingestion",
+        "Eight channels received through the simulator and MQTT."
+      ],
+      [
+        "Persistent dry scenario",
+        "Inspection alert created after three qualifying readings."
+      ],
+      [
+        "Persistent wet scenario",
+        "Changing the Wokwi control to 90% created a drainage-check alert."
+      ],
+      [
+        "Chatbot synthesis",
+        "Live requests returned Gemini answers with Tavily references."
+      ],
+      [
+        "Software checks",
+        "19 existing automated tests passed."
+      ],
+      [
+        "Revised dashboard",
+        "Headless desktop and narrow-screen checks found no JavaScript errors or horizontal overflow."
+      ]
+    ],
+    "widths": [
+      1.8,
+      4.468
+    ]
+  },
+  {
+    "kind": "h2",
+    "text": "(4.2) Saved temperature forecast results"
+  },
+  {
+    "kind": "table_caption",
+    "text": "Table 3. Archived temperature forecast error (MAE in degrees Celsius)."
+  },
+  {
+    "kind": "table",
+    "rows": [
+      [
+        "Horizon",
+        "Boosting MAE °C",
+        "Persistence MAE °C",
+        "Selected method"
+      ],
+      [
+        "1 h",
+        "0.394",
+        "0.756",
+        "Boosting"
+      ],
+      [
+        "6 h",
+        "1.108",
+        "3.527",
+        "Boosting"
+      ],
+      [
+        "24 h",
+        "1.320",
+        "1.224",
+        "Persistence"
+      ]
+    ],
+    "widths": [
+      0.8,
+      1.8,
+      1.8,
+      1.868
+    ]
+  },
+  {
+    "kind": "caption",
+    "text": "Source: saved metrics.csv and run_summary.json, run dated 8 November 2026. MAE is mean absolute error; smaller values are better. Boosting performed better than persistence at one and six hours, while persistence was selected at 24 hours. These are results on weather reanalysis. They do not measure disease detection, crop yield or irrigation savings. The archive evaluation should be reproduced against the latest serving code before claiming deployment performance."
+  },
+  {
+    "kind": "h2",
+    "text": "(4.3) Discussion and limitations"
+  },
+  {
+    "kind": "p",
+    "text": "The system has no physical sensor validation. Moisture and leaf-wetness indexes are manually controlled, and light conversion is approximate. A year of weather covers seasons but does not provide labelled crop problems. Web guidance can be incomplete or incorrect, and provider availability varies. The public MQTT broker is suitable for demonstrations, not private farm deployment. Browser notifications require the dashboard to remain open. No fertilizer dose, disease diagnosis or pump action is established by this prototype."
+  },
+  {
+    "kind": "h2",
+    "text": "(4.4) Classroom demonstration"
+  },
+  {
+    "kind": "p",
+    "text": "1. Start Docker Desktop and the project services. Open localhost:8000, enter a plant and growth stage, and keep Kapriwas as the location."
+  },
+  {
+    "kind": "p",
+    "text": "2. Start Wokwi in VS Code. After a fresh boot, run scripts/upload_wokwi.py with the project Python environment. Click the circuit background and press F to fit the diagram."
+  },
+  {
+    "kind": "p",
+    "text": "3. Select Wokwi sensors, Shallow soil moisture and Every reading on the dashboard. Turn the shallow-moisture knob below 30%. Wait for three readings and the next monitoring cycle, normally about 30–45 seconds after a successful change."
+  },
+  {
+    "kind": "p",
+    "text": "4. Explain the new inspection suggestion and its evidence. Ask the chatbot why it appeared. Record the inspection, then resolve the alert. The same alert has a one-hour repeat limit; for a second demonstration, move shallow moisture above 80% and show the drainage-check suggestion."
+  },
+  {
+    "kind": "p",
+    "text": "5. Click the DHT22 and change its temperature. Show the graph responding. Explain that changing temperature alone does not trigger the soil-moisture rule. Stop Wokwi only at the end to demonstrate the offline state after about two minutes."
+  },
+  {
+    "kind": "h1",
+    "text": "5. Conclusion"
+  },
+  {
+    "kind": "p",
+    "text": "The project demonstrates an IoT monitoring workflow through a virtual ESP32, MQTT, PostgreSQL and a website. Recorded readings produce explainable inspection alerts, while a separate agent adds referenced guidance. The next steps are calibrated physical sensors, crop-specific validation, authenticated messaging, measured alert accuracy and a safe simulated actuator loop with acknowledgements. These improvements must be evaluated before real-farm use."
+  },
+  {
+    "kind": "h1",
+    "text": "6. References"
+  },
+  {
+    "kind": "p",
+    "text": "[1] Allen RG, Pereira LS, Raes D and Smith M. Crop evapotranspiration. FAO Irrigation and Drainage Paper 56, 1998. https://www.fao.org/4/X0490E/x0490e00.htm"
+  },
+  {
+    "kind": "p",
+    "text": "[2] Wokwi. ESP32 WiFi Networking and simulator documentation. https://docs.wokwi.com/guides/esp32-wifi"
+  },
+  {
+    "kind": "p",
+    "text": "[3] Open-Meteo. Historical Weather API documentation. https://open-meteo.com/en/docs/historical-weather-api"
+  },
+  {
+    "kind": "p",
+    "text": "[4] scikit-learn. TimeSeriesSplit documentation. https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html"
+  },
+  {
+    "kind": "p",
+    "text": "[5] scikit-learn. HistGradientBoostingRegressor documentation. https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html"
+  },
+  {
+    "kind": "p",
+    "text": "[6] Tavily. Search API documentation. https://docs.tavily.com/documentation/api-reference/endpoint/search"
+  },
+  {
+    "kind": "caption",
+    "text": "Documentation accessed 17 November 2026. Project evidence: repository code, stored demonstration event and local forecasting artifacts."
+  }
+]
