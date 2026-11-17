@@ -6,7 +6,7 @@ The active location remains Kapriwas; select or type a plant and growth stage in
 
 The new **Actions for your plants** section below the graph uses a dedicated `care-monitor` service. It stores completed hourly Wokwi summaries and opens persistent simulation inspection events for low/high moisture or wet-canopy conditions. Demo moisture thresholds are editable; they are not validated limits for all plants. Three consecutive recent samples spanning at least 20 seconds are needed for a demo trigger. The plant/device profile scopes event creation and the chat context. Action history is saved through the existing event workflow.
 
-Kapriwas's next-six-hour forecast is separate context. The chatbot receives the current profile, device readings, hourly history, recent recorded actions and forecast. It can retry search once for an evidence gap and rereads device context before answering. If Gemini is unavailable it reports local status and source links without presenting search snippets as a treatment plan. Soil nutrients/manure doses cannot be inferred from these sensors.
+Kapriwas's current API weather readings have their own panel, independent of the Wokwi graph. The next-six-hour forecast is separate context. The chatbot receives the current profile, device readings, hourly history, recent recorded actions and forecast. It can retry search once for an evidence gap and rereads device context before answering. If Gemini is unavailable it reports local status and source links without presenting search snippets as a treatment plan. Soil nutrients/manure doses cannot be inferred from these sensors.
 
 Run `docker compose up -d --build`, open `http://localhost:8000`, select your plant and Wokwi device ID, and start Wokwi to populate the field readings. The default device ID is `wokwi-crop-sim-01`. Full research, priorities and remaining work are in [plan.md](plan.md).
 
@@ -30,9 +30,16 @@ The soil moisture, rainfall, and leaf wetness controls are simulation inputs. Th
 ## Run the simulation
 
 1. Install the [Wokwi for VS Code](https://marketplace.visualstudio.com/items?itemName=Wokwi.wokwi-vscode) extension.
-2. Open this project in VS Code and choose **Wokwi: Start Simulator**.
-3. Select the `esp32` directory.
-4. Adjust the DHT22 and NTC temperature controls and the potentiometers while the simulation runs.
+2. Activate your Wokwi licence locally, then open the `esp32` directory in VS Code and choose **Wokwi: Start Simulator**. Keep licences out of project files and Git.
+3. Wait for MicroPython to boot. From the repository root, upload and start the sensor program:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install mpremote==1.29.0
+   .\.venv\Scripts\python.exe scripts\upload_wokwi.py
+   ```
+
+   Repeat the upload after stopping/restarting the simulator: its filesystem is temporary. If it is still booting and reports `could not enter raw repl`, wait for the boot to finish and retry. See the [Wokwi MicroPython instructions](https://docs.wokwi.com/vscode/vscode-micropython).
+4. Adjust the DHT22 (GPIO4), NTC and potentiometers while running. Pin names in the diagram follow the [DevKit V1 board definition](https://github.com/wokwi/wokwi-boards/blob/main/boards/esp32-devkit-v1/board.json): `D34`, `D33`, `D32`, `D35`, `VP` and `VN`. The circuit starts with a deliberately dry shallow-moisture control (about 19.5%) for the presentation. To demonstrate a dry-root inspection suggestion, keep shallow moisture below the configured 30% demo limit for at least three readings, then allow the monitor up to 15 seconds to process them. These are simulated controls, not field measurements.
 5. Start the PostgreSQL and monitor stack (Docker Desktop must be running):
 
    ```shell
@@ -110,9 +117,9 @@ docker compose up -d --build
 docker compose logs -f live-monitor
 ```
 
-Open [http://localhost:8000](http://localhost:8000) for current readings, alert history, research links, acknowledgement/action logging, and the crop profile/threshold form. Use **Ask crop agent** in the top navigation or open [http://localhost:8000/assistant](http://localhost:8000/assistant) to ask crop and farm-management questions. Each conversation is saved in PostgreSQL; answers include web-source links. With `TAVILY_API_KEY` and `GOOGLE_API_KEY`, the assistant searches with Tavily and synthesizes a cited, crop-specific answer with Gemini. If Gemini is unavailable, it falls back to clearly labeled search-result excerpts. Click **Enable notifications** and grant browser permission to receive new event alerts while the dashboard is open. **Create demo alert** creates a clearly labeled synthetic event for presentations. Email, SMS, and push alerts while the dashboard is closed are not configured. The dashboard binds to localhost. The MQTT endpoint is a public demo broker and is only suitable for simulation; use an authenticated private broker with TLS before handling real sensor or private farm data. To configure one, set `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD`, and the same `MQTT_TOPIC` in `.env` and `esp32/main.py`.
+Open [http://localhost:8000](http://localhost:8000) for current readings, alert history, research links, acknowledgement/action logging, and the crop profile/threshold form. Use **Ask crop agent** in the top navigation or open [http://localhost:8000/assistant](http://localhost:8000/assistant) to ask crop and farm-management questions. Each conversation is saved in PostgreSQL; answers include web-source links. With `TAVILY_API_KEY` and `GOOGLE_API_KEY`, the assistant searches with Tavily and synthesizes a cited, crop-specific answer with Gemini. If Gemini is unavailable, it reports clearly labeled local monitoring status and source links. Click **Enable notifications** and grant browser permission to receive new event alerts while the dashboard is open. **Create demo alert** creates a clearly labeled synthetic event for presentations. Email, SMS, and push alerts while the dashboard is closed are not configured. The dashboard binds to localhost. The MQTT endpoint is a public demo broker and is only suitable for simulation; use an authenticated private broker with TLS before handling real sensor or private farm data. To configure one, set `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD`, and the same `MQTT_TOPIC` in `.env` and `esp32/main.py`.
 
-To enable web search and synthesized agent answers, add `TAVILY_API_KEY` and `GOOGLE_API_KEY` to the local, Git-ignored `.env`. The default model is `gemini-3.8-flash`; set `GEMINI_MODEL` to override it. Rebuild the dashboard and research worker with `docker compose up -d --build dashboard research-worker`. Keep all keys out of source files and Git. Tavily uses the documented Bearer token header, and Gemini uses the `x-goog-api-key` header. The dashboard's agent status reports whether these providers are configured.
+To enable web search and synthesized agent answers, add `TAVILY_API_KEY` and `GOOGLE_API_KEY` to the local, Git-ignored `.env`. The default model is `gemini-3-flash-preview`; set `GEMINI_MODEL` to override it. Rebuild the dashboard and research worker with `docker compose up -d --build dashboard research-worker`. Keep all keys out of source files and Git. Tavily uses the documented Bearer token header, and Gemini uses the `x-goog-api-key` header. The dashboard's agent status reports whether these providers are configured.
 
 Every 15 minutes the service reads Open-Meteo current model conditions, stores the eight sensor-like values in PostgreSQL, and marks them as simulated/model-derived. Air temperature, humidity, rainfall, solar radiation, soil temperature, and soil moisture come from the weather model. Leaf wetness is a simple synthetic proxy. These are not direct Wokwi or physical-sensor readings; Open-Meteo current conditions are based on weather-model data. Wokwi MQTT readings are also stored in PostgreSQL as a separately labeled simulation source.
 

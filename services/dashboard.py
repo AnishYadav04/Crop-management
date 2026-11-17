@@ -344,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"search_configured":search_ready,
                                     "synthesis_configured":synthesis_ready,
                                     "mode":"tavily_gemini" if search_ready and os.getenv("GOOGLE_API_KEY") else "tavily_search_excerpts" if search_ready else "search_result_excerpts",
-                                    "message":"Tavily search and Gemini synthesis are configured. If Gemini is unreachable, the agent falls back to cited search excerpts." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
+                                    "message":"Tavily search and Gemini synthesis are configured. If Gemini is unreachable, the agent reports local monitoring status and source links." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
                 if parsed.path == "/api/actions":
                     state=care_snapshot(conn)
                     rows=conn.execute("""SELECT id,event_type,summary,details,detected_at,event_status
@@ -387,7 +387,8 @@ class Handler(BaseHTTPRequestHandler):
                                  avg(soil_moisture_shallow_pct),avg(soil_moisture_deep_pct),avg(soil_temp_c),
                                  avg(light_lux),sum(rainfall_mm),avg(solar_radiation_w_m2),avg(leaf_wetness_pct),
                                  bool_or(leaf_wetness_is_estimated),(array_agg(measurement_metadata))[1],
-                                 count(*) FROM sensor_readings WHERE observed_at>now()-(%s*interval '1 hour'){source_sql}
+                                 count(*) FROM sensor_readings WHERE quality_status<>'invalid'
+                                 AND observed_at>now()-(%s*interval '1 hour'){source_sql}
                                  GROUP BY 1,2,3 ORDER BY 1 DESC LIMIT 2000"""
                         args = [bucket, *params]
                     else:
@@ -395,7 +396,8 @@ class Handler(BaseHTTPRequestHandler):
                                  soil_moisture_shallow_pct,soil_moisture_deep_pct,soil_temp_c,light_lux,
                                  rainfall_mm,solar_radiation_w_m2,leaf_wetness_pct,
                                  leaf_wetness_is_estimated,measurement_metadata,1
-                                 FROM sensor_readings WHERE observed_at>now()-(%s*interval '1 hour'){source_sql}
+                                 FROM sensor_readings WHERE quality_status<>'invalid'
+                                 AND observed_at>now()-(%s*interval '1 hour'){source_sql}
                                  ORDER BY observed_at DESC LIMIT 2000"""
                         args = params
                     rows = conn.execute(sql,args).fetchall()

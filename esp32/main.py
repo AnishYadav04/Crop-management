@@ -2,6 +2,8 @@
 
 import json
 import math
+import os
+import binascii
 import network
 import time
 import ntptime
@@ -19,8 +21,8 @@ MQTT_TOPIC = b"crop/field1/sensors/demo73921"
 PUBLISH_INTERVAL = 10
 
 DEVICE_ID = "wokwi-crop-sim-01"
-DEVICE_SESSION_ID = "%08x" % machine.rng()
-DHT_PIN = 15
+DEVICE_SESSION_ID = binascii.hexlify(os.urandom(8)).decode()
+DHT_PIN = 4
 
 mqtt_client = None
 rtc_synced = False
@@ -161,7 +163,7 @@ def connect_mqtt():
 
     try:
         mqtt_client = MQTTClient(
-            "crop-sim-%06x" % machine.rng(),
+            "crop-sim-" + DEVICE_SESSION_ID,
             MQTT_BROKER,
             port=MQTT_PORT,
             keepalive=60,

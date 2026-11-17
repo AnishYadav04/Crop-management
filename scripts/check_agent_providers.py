@@ -21,7 +21,7 @@ def check(provider,url,headers,body=None):
         result={'provider':provider,'reachable':True}
         if provider=='Gemini':
             names=[m['name'].split('/')[-1] for m in data.get('models',[]) if 'generateContent' in m.get('supportedGenerationMethods',[])]
-            model=os.getenv('GEMINI_MODEL','gemini-3.8-flash')
+            model=os.getenv('GEMINI_MODEL','gemini-3-flash-preview')
             result.update(configured_model=model,model_available=model in names,flash_models=[n for n in names if 'flash' in n][:8])
         elif provider=='GeminiGeneration':
             result['text_present']=any(p.get('text') for c in data.get('candidates',[]) for p in c.get('content',{}).get('parts',[]))

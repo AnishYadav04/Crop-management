@@ -22,7 +22,7 @@
       "id": "soil_moisture_shallow",
       "top": 40,
       "left": 260,
-      "attrs": { "value": "700" }
+      "attrs": { "value": "200" }
     },
     {
       "type": "wokwi-potentiometer",
@@ -70,36 +70,36 @@
   "connections": [
     ["esp:3V3", "air_conditions:VCC", "red", ["v0"]],
     ["esp:GND.1", "air_conditions:GND", "black", ["v0"]],
-    ["esp:15", "air_conditions:SDA", "green", ["v0"]],
+    ["esp:D4", "air_conditions:SDA", "green", ["v0"]],
 
     ["esp:3V3", "soil_moisture_shallow:VCC", "red", ["v0"]],
     ["esp:GND.1", "soil_moisture_shallow:GND", "black", ["v0"]],
-    ["esp:34", "soil_moisture_shallow:SIG", "green", ["v0"]],
+    ["esp:D34", "soil_moisture_shallow:SIG", "green", ["v0"]],
 
     ["esp:3V3", "soil_moisture_deep:VCC", "red", ["v0"]],
     ["esp:GND.1", "soil_moisture_deep:GND", "black", ["v0"]],
-    ["esp:33", "soil_moisture_deep:SIG", "green", ["v0"]],
+    ["esp:D33", "soil_moisture_deep:SIG", "green", ["v0"]],
 
     ["esp:3V3", "light_sensor:VCC", "red", ["v0"]],
     ["esp:GND.1", "light_sensor:GND", "black", ["v0"]],
-    ["esp:35", "light_sensor:AO", "green", ["v0"]],
+    ["esp:D35", "light_sensor:AO", "green", ["v0"]],
 
     ["esp:3V3", "soil_temperature:VCC", "red", ["v0"]],
     ["esp:GND.1", "soil_temperature:GND", "black", ["v0"]],
-    ["esp:32", "soil_temperature:OUT", "blue", ["v0"]],
+    ["esp:D32", "soil_temperature:OUT", "blue", ["v0"]],
 
     ["esp:3V3", "rainfall_input:VCC", "red", ["v0"]],
     ["esp:GND.1", "rainfall_input:GND", "black", ["v0"]],
-    ["esp:36", "rainfall_input:SIG", "green", ["v0"]],
+    ["esp:VP", "rainfall_input:SIG", "green", ["v0"]],
 
     ["esp:3V3", "leaf_wetness_input:VCC", "red", ["v0"]],
     ["esp:GND.1", "leaf_wetness_input:GND", "black", ["v0"]],
-    ["esp:39", "leaf_wetness_input:SIG", "green", ["v0"]],
+    ["esp:VN", "leaf_wetness_input:SIG", "green", ["v0"]],
 
     ["esp:3V3", "oled1:VCC", "red", ["v0"]],
     ["esp:GND.1", "oled1:GND", "black", ["v0"]],
-    ["esp:21", "oled1:SDA", "blue", ["v0"]],
-    ["esp:22", "oled1:SCL", "purple", ["v0"]]
+    ["esp:D21", "oled1:SDA", "blue", ["v0"]],
+    ["esp:D22", "oled1:SCL", "purple", ["v0"]]
   ],
   "dependencies": {}
 }
