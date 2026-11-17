@@ -17,7 +17,7 @@ import psycopg
 
 from ml.features import FEATURE_TARGETS, REQUIRED_HISTORY_ROWS, exact_hourly_window, make_features
 from services.research_agent import answer_user_query
-from services.plant_care import snapshot as care_snapshot
+from services.plant_care import snapshot as care_snapshot, evaluate as evaluate_care
 
 DB = os.getenv("DATABASE_URL")
 HTML = Path(__file__).resolve().parents[1] / "dashboard" / "index.html"
@@ -353,6 +353,8 @@ class Handler(BaseHTTPRequestHandler):
                         AND event_status<>'resolved' ORDER BY detected_at DESC LIMIT 10""",
                         (state['location'],state['device_id'],state['plant'])).fetchall()
                     state['actions']=[dict(zip(('id','type','summary','details','detected_at','status'),row)) for row in rows]
+                    state['current_conditions']=[{'type':kind,'action':action,'reason':reason}
+                                                 for kind,action,reason in evaluate_care(state)]
                     self.send_json(state); return
                 if parsed.path == "/api/conversations":
                     rows=conn.execute("""SELECT c.id,c.title,c.crop_name,c.updated_at,

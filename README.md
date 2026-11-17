@@ -1,5 +1,11 @@
 # Crop Monitoring Simulation
 
+## Presentation materials
+
+Use [DEMO_GUIDE.md](DEMO_GUIDE.md) for the Wokwi controls, dry/wet scenarios and alert workflow. The dashboard also includes a collapsible teacher demo guide. [Crop Care System report](reports/Crop_Care_System_Report.docx) is a short editable university report with five blank student rows, references and project figures.
+
+The graph now includes a numeric scale, time labels, point inspection and a clear explanation for unchanged readings. Alert history separates workflow status from research status and hides older manual demos unless **All history** is selected. Resolving an alert does not clear the underlying sensor condition; the Actions panel explains when that condition remains present.
+
 ## Plant care update (17 November 2026)
 
 The active location remains Kapriwas; select or type a plant and growth stage in the dashboard. Sugarcane is no longer the fixed active profile. The Wokwi device is the default field source. An offline simulator is shown as offline, even while weather API updates continue.
