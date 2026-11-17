@@ -17,6 +17,7 @@ import psycopg
 
 from ml.features import FEATURE_TARGETS, REQUIRED_HISTORY_ROWS, exact_hourly_window, make_features
 from services.research_agent import answer_user_query
+from services.plant_care import snapshot as care_snapshot
 
 DB = os.getenv("DATABASE_URL")
 HTML = Path(__file__).resolve().parents[1] / "dashboard" / "index.html"
@@ -247,6 +248,31 @@ class Handler(BaseHTTPRequestHandler):
             if not profile:
                 self.send_json({"error":"no active crop profile is configured"},503); return
             location,crop,variety,stage,soil=profile
+            care=care_snapshot(conn)
+            latest_readings=conn.execute(
+                """SELECT DISTINCT ON (source_model)
+                          source_model,observed_at,is_simulated,air_temp_c,air_humidity_pct,
+                          soil_moisture_shallow_pct,soil_moisture_deep_pct,soil_temp_c,
+                          rainfall_mm,solar_radiation_w_m2,leaf_wetness_pct,leaf_wetness_is_estimated
+                     FROM sensor_readings
+                    WHERE location_name=%s
+                      AND observed_at >= now()-interval '24 hours'
+                      AND (source_model='open-meteo-current' OR
+                           (source_model='wokwi-simulation' AND device_id=%s))
+                    ORDER BY source_model,observed_at DESC""",
+                (location,care['device_id']),
+            ).fetchall()
+            reading_fields=("source_model","observed_at","is_simulated","air_temp_c","air_humidity_pct",
+                            "soil_moisture_shallow_pct","soil_moisture_deep_pct","soil_temp_c",
+                            "rainfall_mm","solar_radiation_w_m2","leaf_wetness_pct","leaf_wetness_is_estimated")
+            latest_readings=[dict(zip(reading_fields,row)) for row in latest_readings]
+            now_utc=datetime.now(timezone.utc)
+            for reading in latest_readings:
+                observed_at=reading["observed_at"]
+                if observed_at.tzinfo is None:
+                    observed_at=observed_at.replace(tzinfo=timezone.utc)
+                reading["age_minutes"]=max(0,int((now_utc-observed_at).total_seconds()/60))
+                reading["fresh_for_advice"]=reading["age_minutes"] <= 60
             if conversation_id:
                 exists=conn.execute("SELECT id FROM agent_conversations WHERE id=%s",(conversation_id,)).fetchone()
                 if not exists:
@@ -267,9 +293,14 @@ class Handler(BaseHTTPRequestHandler):
             conn.commit()
 
         context={"location_name":location,"crop_name":crop,"crop_variety":variety,
-                 "growth_stage":stage,"soil_type":soil,"conversation_history":history}
+                 "growth_stage":stage,"soil_type":soil,"latest_readings":latest_readings,
+                 "iot_monitoring":care,
+                 "conversation_history":history}
         try:
-            answer,sources,mode=answer_user_query(question,context)
+            def refresh_chat_context():
+                with psycopg.connect(DB) as latest_conn:
+                    return care_snapshot(latest_conn)
+            answer,sources,mode=answer_user_query(question,context,refresh_context=refresh_chat_context)
         except Exception as exc:
             answer=("I couldn't complete the web search just now. Please try again in a moment, "
                     "or open a source from the crop profile's research section.")
@@ -314,6 +345,15 @@ class Handler(BaseHTTPRequestHandler):
                                     "synthesis_configured":synthesis_ready,
                                     "mode":"tavily_gemini" if search_ready and os.getenv("GOOGLE_API_KEY") else "tavily_search_excerpts" if search_ready else "search_result_excerpts",
                                     "message":"Tavily search and Gemini synthesis are configured. If Gemini is unreachable, the agent falls back to cited search excerpts." if search_ready and os.getenv("GOOGLE_API_KEY") else "Tavily web search is configured. Add GOOGLE_API_KEY to enable Gemini-synthesized answers." if search_ready else "Tavily is not configured; the agent uses the built-in search fallback."}); return
+                if parsed.path == "/api/actions":
+                    state=care_snapshot(conn)
+                    rows=conn.execute("""SELECT id,event_type,summary,details,detected_at,event_status
+                        FROM maintenance_events WHERE location_name=%s AND source_model='wokwi-simulation'
+                        AND event_type LIKE 'plant_%%' AND details->>'device_id'=%s AND details->>'crop_name'=%s
+                        AND event_status<>'resolved' ORDER BY detected_at DESC LIMIT 10""",
+                        (state['location'],state['device_id'],state['plant'])).fetchall()
+                    state['actions']=[dict(zip(('id','type','summary','details','detected_at','status'),row)) for row in rows]
+                    self.send_json(state); return
                 if parsed.path == "/api/conversations":
                     rows=conn.execute("""SELECT c.id,c.title,c.crop_name,c.updated_at,
                                                count(m.id) AS message_count
@@ -406,8 +446,8 @@ class Handler(BaseHTTPRequestHandler):
                     location,crop,stage,soil=profile
                     details={"demo":True,"source_model":"dashboard-demo","source_kind":"demo","crop_name":crop,"growth_stage":stage,"soil_type":soil,"temperature_before_c":31.0,"temperature_now_c":28.5,"temperature_drop_c":2.5,"temperature_window_hours":6,"rainfall_interval_mm":4.2,"note":"Synthetic presentation event, not an observation."}
                     event_id=conn.execute("""INSERT INTO maintenance_events(event_key,event_type,location_name,detected_at,severity,summary,details,research_status,source_model,rule_version,event_status,evidence)
-                                      VALUES(%s,'demo_sugarcane_weather_alert',%s,now(),'low',%s,%s::jsonb,'pending','dashboard-demo','demo-v1','open','[]'::jsonb) RETURNING id""",
-                                      (f"demo|{uuid.uuid4()}",location,"DEMO ONLY — simulated sugarcane weather alert. This is not a real field warning.",json.dumps(details))).fetchone()[0]
+                                      VALUES(%s,'demo_plant_weather_alert',%s,now(),'low',%s,%s::jsonb,'pending','dashboard-demo','demo-v1','open','[]'::jsonb) RETURNING id""",
+                                      (f"demo|{uuid.uuid4()}",location,"DEMO ONLY — simulated plant weather alert. This is not a real field warning.",json.dumps(details))).fetchone()[0]
                     self.send_json({"created":True,"id":event_id,"message":"Demo alert created. The research worker will attach guidance shortly."}); return
                 if len(parts)==4 and parts[:2]==["api","events"]:
                     event_id=int(parts[2]); action=parts[3]
@@ -430,14 +470,32 @@ class Handler(BaseHTTPRequestHandler):
                 if parsed.path=="/api/profile":
                     allowed=("crop_name","growth_stage","soil_type","crop_variety","planting_date","soil_ph","soil_ec_ds_m","field_capacity_vwc","wilting_point_vwc","rooting_depth_m","moisture_warning_threshold_pct","threshold_evidence","moisture_calibration_version","rainfall_onset_mm","temperature_drop_c","temperature_window_hours","event_cooldown_hours")
                     updates={key:data.get(key) for key in allowed if key in data}
+                    for key in ('simulation_device_id','sim_moisture_low','sim_moisture_high'):
+                        if key in data: updates[key]=data[key]
                     if not updates:
                         self.send_json({"error":"no supported fields supplied"},400); return
+                    if 'planting_date' in updates:
+                        updates['planting_date']=date.fromisoformat(updates['planting_date']) if updates['planting_date'] else None
+                    for name in ('crop_name','growth_stage','soil_type'):
+                        if name in updates:
+                            updates[name]=str(updates[name] or '').strip()[:100] or 'unspecified'
                     numeric=("soil_ph","soil_ec_ds_m","field_capacity_vwc","wilting_point_vwc","rooting_depth_m","moisture_warning_threshold_pct","rainfall_onset_mm","temperature_drop_c","temperature_window_hours","event_cooldown_hours")
                     for name in numeric:
                         if name in updates and updates[name] is not None:
                             value=float(updates[name])
                             if not np.isfinite(value): raise ValueError(f"{name} must be finite")
                             updates[name]=value
+                    for name in ('sim_moisture_low','sim_moisture_high'):
+                        if name in updates:
+                            value=float(updates[name])
+                            if not np.isfinite(value) or not 0<=value<=100:
+                                raise ValueError('Simulation thresholds must be between 0 and 100')
+                            updates[name]=value
+                    previous=conn.execute('SELECT sim_moisture_low,sim_moisture_high FROM site_profile WHERE id=1').fetchone()
+                    if updates.get('sim_moisture_low',previous[0])>=updates.get('sim_moisture_high',previous[1]):
+                        raise ValueError('Simulation low moisture threshold must be below the high threshold')
+                    if 'simulation_device_id' in updates and not str(updates['simulation_device_id'] or '').strip():
+                        raise ValueError('Select a simulation device ID')
                     bounds={"soil_ph":(0,14),"soil_ec_ds_m":(0,1000),"field_capacity_vwc":(0,1),"wilting_point_vwc":(0,1),"rooting_depth_m":(0,10),"moisture_warning_threshold_pct":(0,100),"rainfall_onset_mm":(0,1000),"temperature_drop_c":(0,70),"temperature_window_hours":(1,168),"event_cooldown_hours":(0,720)}
                     for name,(low,high) in bounds.items():
                         if name in updates and updates[name] is not None and not low <= updates[name] <= high:

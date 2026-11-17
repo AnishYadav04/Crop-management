@@ -85,6 +85,16 @@ services:
       - ./artifacts/forecasting:/app/artifacts/forecasting:ro
     command: ["python", "-u", "-m", "services.dashboard"]
 
+  care-monitor:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://crop_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/crop_management
+    command: ["python", "-u", "-m", "services.plant_care"]
+
   research-worker:
     build: .
     container_name: crop-management-research-worker

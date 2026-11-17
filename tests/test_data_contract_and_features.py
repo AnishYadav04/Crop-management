@@ -11,7 +11,7 @@ from ml.features import FEATURE_TARGETS, REQUIRED_HISTORY_ROWS, exact_hourly_win
 from services.data_quality import build_measurement_metadata, normalize_sensor_values, parse_observation_time
 from services.dashboard import aggregate_weather_observations, hourly_source_is_fresh
 from services.event_rules import build_event_key
-from services.research_agent import _is_trusted, answer_user_query, summarize_event
+from services.research_agent import _is_trusted, answer_user_query, build_field_search_query, summarize_event
 
 
 def sample_frame(rows=200):
@@ -98,11 +98,28 @@ class ResearchEvidenceTests(unittest.TestCase):
             {"crop_name":"Sugarcane","location_name":"Kapriwas, Haryana",
              "conversation_history":[{"role":"user","content":"Recent heavy rainfall"}]},
         )
-        self.assertIn("standing water", answer)
+        self.assertIn("AI synthesis is unavailable", answer)
         self.assertEqual(mode, "search_result_excerpts")
         self.assertEqual(len(sources), 1)
-        self.assertIn("Recent heavy rainfall", search.call_args.args[0])
+        self.assertNotIn("Recent heavy rainfall", search.call_args.args[0])
         self.assertIn("Sugarcane", search.call_args.args[0])
+
+    def test_field_search_uses_only_fresh_weather_context(self):
+        query = build_field_search_query(
+            "What should I do now?",
+            {"crop_name":"Tomato", "growth_stage":"vegetative", "location_name":"Kapriwas, Rewari, Haryana, India",
+             "latest_readings":[
+                 {"source_model":"open-meteo-current", "observed_at":"2026-11-16T10:00:00+05:30",
+                  "fresh_for_advice":True, "air_temp_c":18.5, "rainfall_mm":2.0,"soil_moisture_shallow_pct":40.0},
+                 {"source_model":"wokwi-simulation", "fresh_for_advice":False,"air_temp_c":99.0},
+             ]},
+        )
+        self.assertIn("Tomato", query)
+        self.assertIn("Haryana India", query)
+        self.assertIn("after rainfall field drainage", query)
+        self.assertIn("root-zone soil moisture irrigation scheduling guidance", query)
+        self.assertNotIn("Kapriwas", query)
+        self.assertNotIn("99.0C", query)
 
     def test_event_identity_and_cooldown_scope_include_source(self):
         stamp = pd.Timestamp("2026-11-14T12:00:00+05:30").to_pydatetime()

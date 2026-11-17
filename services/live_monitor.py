@@ -49,6 +49,8 @@ def fetch_current(profile: dict) -> dict:
             "latitude": profile["latitude"],
             "longitude": profile["longitude"],
             "current": CURRENT_FIELDS,
+            "hourly": "temperature_2m,precipitation,precipitation_probability",
+            "forecast_days": 2,
             "timezone": profile["timezone"],
             "temperature_unit": "celsius",
             "precipitation_unit": "mm",
@@ -106,6 +108,10 @@ def _percent_from_vwc(value: float | None) -> float | None:
 
 
 def persist_reading(conn: psycopg.Connection, payload: dict, profile: dict) -> tuple[datetime, bool, dict]:
+    if payload.get('hourly'):
+        conn.execute("""INSERT INTO weather_outlook(location_name,hourly,timezone) VALUES(%s,%s::jsonb,%s)
+            ON CONFLICT(location_name) DO UPDATE SET hourly=excluded.hourly,timezone=excluded.timezone,fetched_at=now()""",
+            (profile['location_name'],json.dumps(payload['hourly']),profile['timezone']))
     current = payload["current"]
     observed_at = datetime.fromisoformat(current["time"])
     timezone = ZoneInfo(profile["timezone"])

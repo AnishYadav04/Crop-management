@@ -1,5 +1,15 @@
 # Crop Monitoring Simulation
 
+## Plant care update (17 November 2026)
+
+The active location remains Kapriwas; select or type a plant and growth stage in the dashboard. Sugarcane is no longer the fixed active profile. The Wokwi device is the default field source. An offline simulator is shown as offline, even while weather API updates continue.
+
+The new **Actions for your plants** section below the graph uses a dedicated `care-monitor` service. It stores completed hourly Wokwi summaries and opens persistent simulation inspection events for low/high moisture or wet-canopy conditions. Demo moisture thresholds are editable; they are not validated limits for all plants. Three consecutive recent samples spanning at least 20 seconds are needed for a demo trigger. The plant/device profile scopes event creation and the chat context. Action history is saved through the existing event workflow.
+
+Kapriwas's next-six-hour forecast is separate context. The chatbot receives the current profile, device readings, hourly history, recent recorded actions and forecast. It can retry search once for an evidence gap and rereads device context before answering. If Gemini is unavailable it reports local status and source links without presenting search snippets as a treatment plan. Soil nutrients/manure doses cannot be inferred from these sensors.
+
+Run `docker compose up -d --build`, open `http://localhost:8000`, select your plant and Wokwi device ID, and start Wokwi to populate the field readings. The default device ID is `wokwi-crop-sim-01`. Full research, priorities and remaining work are in [plan.md](plan.md).
+
 An ESP32 crop-monitoring simulation for Wokwi. It publishes eight simulated sensor values over MQTT. The Docker stack stores both Wokwi and model-based weather observations in PostgreSQL, applies configurable maintenance rules, and provides a local dashboard.
 
 ## Simulated readings
@@ -106,7 +116,7 @@ To enable web search and synthesized agent answers, add `TAVILY_API_KEY` and `GO
 
 Every 15 minutes the service reads Open-Meteo current model conditions, stores the eight sensor-like values in PostgreSQL, and marks them as simulated/model-derived. Air temperature, humidity, rainfall, solar radiation, soil temperature, and soil moisture come from the weather model. Leaf wetness is a simple synthetic proxy. These are not direct Wokwi or physical-sensor readings; Open-Meteo current conditions are based on weather-model data. Wokwi MQTT readings are also stored in PostgreSQL as a separately labeled simulation source.
 
-The versioned informational rule creates an event when rain starts after a configurable temperature drop, with missing-rain and source-gap checks, bounded temperature matching, and source-specific cooldown. When configured, the research worker searches with Tavily and uses Gemini to write a cautious summary; source links are stored with the event. Trusted-domain matching uses hostname boundaries, and stale `searching` jobs return to the queue after a worker crash. The site profile is set to Sugarcane for Kapriwas; growth stage and soil remain unspecified until provided. Crop context can be changed in the dashboard. Moisture thresholds remain unset until field calibration and evidence are available. A weather pattern is not a confirmed crop diagnosis. See [SUGARCANE_PROFILE.md](SUGARCANE_PROFILE.md) for the local research summary and presentation guidance.
+The versioned informational rule creates an event when rain starts after a configurable temperature drop, with missing-rain and source-gap checks, bounded temperature matching, and source-specific cooldown. When configured, the research worker searches with Tavily and uses Gemini to write a cautious summary; source links are stored with the event. Trusted-domain matching uses hostname boundaries, and stale `searching` jobs return to the queue after a worker crash. The site profile stays in Kapriwas; select a plant and growth stage in the dashboard. Crop context can be changed in the dashboard. Moisture thresholds remain unset until field calibration and evidence are available. A weather pattern is not a confirmed crop diagnosis. See [SUGARCANE_PROFILE.md](SUGARCANE_PROFILE.md) for the local research summary and presentation guidance.
 
 The forecast panel is gated on 169 consecutive completed hourly observations with source coverage, including the 168-hour lag required by the model. Training and serving share the same causal feature code. Rainfall intervals are summed while state variables are averaged. The app persists forecast origin/valid times, model version, method, training source, and historical holdout MAE, then attaches later hourly readings for prospective evaluation. The initial models were trained on ERA5 archive rows; transfer to the live weather-model feed is unvalidated, so forecasts do not trigger agronomic actions.
 
